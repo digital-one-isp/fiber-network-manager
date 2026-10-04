@@ -38,12 +38,15 @@ export default function CustomerDetailPage({
   >([]);
 
   async function loadConnections() {
-    const { data: conns } = await supabase
+    const { data: conns, error: connErr } = await supabase
       .from("customer_connections")
       .select(
-        "id, splitter_port_id, onu_serial_number, status, splitter_ports(id, port_number, splitters(id, name, ratio, tg_box_id))"
+        "id, splitter_port_id, onu_serial_number, status, splitter_ports(id, port_number, splitters:splitters!splitter_ports_splitter_id_fkey(id, name, ratio, tg_box_id))"
       )
       .eq("customer_id", id);
+    if (connErr) {
+      console.error(connErr);
+    }
     const typed = (conns ?? []) as unknown as PortConn[];
     setPortConns(typed);
 
