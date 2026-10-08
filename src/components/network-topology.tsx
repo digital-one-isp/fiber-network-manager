@@ -70,6 +70,7 @@ export type CableNode = {
   lengthM: number | null;
   status: string;
   faults: Fault[];
+  pon: PonLink | null;
   boxes: BoxNode[];
 };
 export type OltNode = {
@@ -84,9 +85,29 @@ export type OltNode = {
   ponPorts: number;
   status: string;
   faults: Fault[];
+  ports: OltPortNode[];
   cables: CableNode[];
 };
 export type Ref = { id: string; name: string };
+export type PonLink = {
+  number: number;
+  label: string;
+  description: string | null;
+  coreNumber: number | null;
+  coreColor: string | null;
+};
+export type OltPortNode = {
+  id: string;
+  number: number;
+  label: string;
+  description: string | null;
+  status: string;
+  sfp: string | null;
+  tx: number | null;
+  cableId: string | null;
+  coreNumber: number | null;
+  coreColor: string | null;
+};
 export type NetworkData = {
   olts: OltNode[];
   orphans: { cables: Ref[]; boxes: Ref[]; splitters: Ref[]; customers: Ref[] };
@@ -100,6 +121,7 @@ export type NetworkData = {
     customers: number;
     customersActive: number;
     openFaults: number;
+    ponPorts: { total: number; connected: number };
     ports: {
       used: number;
       reserved: number;
@@ -186,6 +208,36 @@ const portLabel: Record<PortState, string> = {
   free: "Free",
 };
 
+const ponStatusCls: Record<string, string> = {
+  free: "bg-gray-100 text-gray-600",
+  active: "bg-emerald-50 text-emerald-700",
+  reserved: "bg-amber-50 text-amber-700",
+  faulty: "bg-red-50 text-red-700",
+  disabled: "bg-slate-200 text-slate-700",
+};
+
+const coreHex: Record<string, string> = {
+  Blue: "#2563eb",
+  Orange: "#ea580c",
+  Green: "#16a34a",
+  Brown: "#78350f",
+  Slate: "#64748b",
+  White: "#e5e7eb",
+  Red: "#dc2626",
+  Black: "#111827",
+  Yellow: "#eab308",
+  Violet: "#7c3aed",
+  Rose: "#f43f5e",
+  Aqua: "#06b6d4",
+};
+
+function ponLed(p: OltPortNode) {
+  if (p.status === "faulty") return "#ef4444";
+  if (p.cableId) return C.feeder;
+  if (p.status === "reserved") return "#60a5fa";
+  return "rgba(255,255,255,0.22)";
+}
+
 function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
@@ -195,6 +247,13 @@ function cap(s: string) {
 function fmtCoords(lat: number | null, lng: number | null) {
   if (lat === null || lng === null) return null;
   return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
+function ponText(p: PonLink) {
+  const core =
+    p.coreNumber !== null
+      ? `, core ${p.coreNumber}${p.coreColor ? ` (${p.coreColor})` : ""}`
+      : "";
+  return `${p.label}${core}`;
 }
 function mapsUrl(lat: number | null, lng: number | null) {
   if (lat === null || lng === null) return null;
@@ -425,7 +484,7 @@ function computeVisible(olts: OltNode[], q: string): Set<string> | null {
     return any;
   }
   function cable(c: CableNode, force: boolean): boolean {
-    const self = force || hit(c.name, c.type);
+    const self = force || hit(c.name, c.type, c.pon?.label, c.pon?.description);
     let any = self;
     for (const b of c.boxes) if (box(b, self)) any = true;
     if (any) vis.add("cb:" + c.id);
@@ -546,7 +605,10 @@ function describe(sel: Selection): Info {
       facts: [
         ["Device", [o.vendor, o.model].filter(Boolean).join(" ") || null],
         ["Management IP", o.ip],
-        ["PON ports", String(o.ponPorts)],
+        [
+          "PON ports",
+          `${o.ports.filter((p) => p.cableId).length} of ${o.ponPorts} connected`,
+        ],
         ["Cables attached", String(o.cables.length)],
         ["Address", o.address],
         ["Coordinates", fmtCoords(o.lat, o.lng)],
@@ -565,6 +627,7 @@ function describe(sel: Selection): Info {
       status: c.status,
       facts: [
         ["Type", cap(c.type)],
+        ["OLT PON port", c.pon ? ponText(c.pon) : null],
         ["Cores", String(c.coreCount)],
         ["In use", String(c.usedCores)],
         ["Damaged", String(c.damagedCores)],
@@ -735,6 +798,7 @@ function DetailModal({
   }
 
   const info = describe(sel);
+  const oltCables: CableNode[] = sel.kind === "olt" ? sel.node.cables : [];
   const color = kindColor[sel.kind];
   const maps = mapsUrl(info.lat, info.lng);
 
@@ -859,6 +923,90 @@ function DetailModal({
               </ol>
             </section>
           </div>
+
+          {sel.kind === "olt" && sel.node.ports.length > 0 && (
+            <section className="mt-6">
+              <SectionTitle>PON ports</SectionTitle>
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-left text-xs text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Port</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Fiber</th>
+                      <th className="px-3 py-2 font-medium">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sel.node.ports.map((p) => {
+                      const cable = p.cableId
+                        ? oltCables.find((c) => c.id === p.cableId)
+                        : undefined;
+                      return (
+                        <tr key={p.id} className="border-t border-gray-100 align-top">
+                          <td className="px-3 py-2 font-medium text-gray-900">
+                            {p.label}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                ponStatusCls[p.status] ?? ponStatusCls.free
+                              }`}
+                            >
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            {p.cableId ? (
+                              <>
+                                {cable ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onSelect(selCable(cable, sel.path))}
+                                    className={`text-blue-600 hover:underline ${focusRing}`}
+                                  >
+                                    {cable.name}
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-700">Cable linked</span>
+                                )}
+                                {p.coreNumber !== null && (
+                                  <span className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500">
+                                    <span
+                                      className="h-2 w-2 rounded-full border border-gray-300"
+                                      style={{
+                                        backgroundColor: coreHex[p.coreColor ?? ""] ?? "#999",
+                                      }}
+                                    />
+                                    Core {p.coreNumber}
+                                    {p.coreColor ? ` (${p.coreColor})` : ""}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gray-400">Nothing plugged in</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600">
+                            {p.description ?? (
+                              <span className="text-gray-400">No description</span>
+                            )}
+                            {(p.sfp || p.tx !== null) && (
+                              <span className="mt-0.5 block text-xs text-gray-400">
+                                {[p.sfp, p.tx !== null ? `Tx ${p.tx} dBm` : null]
+                                  .filter(Boolean)
+                                  .join(", ")}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           {sel.kind === "olt" && sel.node.cables.length > 0 && (
             <section className="mt-6">
@@ -1245,6 +1393,22 @@ export default function NetworkTopology({ data }: { data: NetworkData }) {
           <span className="text-xs capitalize text-gray-500">{c.type}</span>
           <FaultDot faults={c.faults} />
         </span>
+        {c.pon && (
+          <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-700">
+            <span className="rounded-[4px] bg-slate-800 px-1.5 py-0.5 font-medium text-white">
+              {c.pon.label}
+            </span>
+            {c.pon.coreNumber !== null && (
+              <span className="flex items-center gap-1">
+                <span
+                  className="h-2 w-2 rounded-full border border-gray-300"
+                  style={{ background: coreHex[c.pon.coreColor ?? ""] ?? "#999" }}
+                />
+                Core {c.pon.coreNumber}
+              </span>
+            )}
+          </span>
+        )}
         <span className="mt-1.5 flex items-center gap-2 text-[11px] text-gray-500">
           <Bar value={c.usedCores} total={c.coreCount} color={color} />
           {c.usedCores} of {c.coreCount} cores in use
@@ -1260,7 +1424,7 @@ export default function NetworkTopology({ data }: { data: NetworkData }) {
     const kids: Kid[] = o.cables
       .filter((c) => show("cb:" + c.id))
       .map((c) => ({ color: cableColor(c.type), node: renderCable(c, sel.path) }));
-    const leds = Math.min(o.ponPorts, 16);
+
 
     const card = (
       <button
@@ -1283,12 +1447,12 @@ export default function NetworkTopology({ data }: { data: NetworkData }) {
           className="mt-2 flex max-w-[9rem] flex-wrap gap-1"
           title="PON ports (lit = has a cable)"
         >
-          {Array.from({ length: leds }).map((_, i) => (
+          {o.ports.slice(0, 32).map((p, i) => (
             <span
               key={i}
               className="h-1.5 w-1.5 rounded-full"
               style={{
-                background: i < o.cables.length ? C.feeder : "rgba(255,255,255,0.22)",
+                background: ponLed(p),
               }}
             />
           ))}
@@ -1309,6 +1473,10 @@ export default function NetworkTopology({ data }: { data: NetworkData }) {
   ];
   const facts = [
     { label: "OLTs", value: String(t.olts) },
+    {
+      label: "PON ports in use",
+      value: `${t.ponPorts.connected}/${t.ponPorts.total}`,
+    },
     { label: "Cables", value: String(t.cables) },
     { label: "Cores in use", value: `${t.coresUsed}/${t.coresTotal}` },
     { label: "TG boxes", value: String(t.boxes) },

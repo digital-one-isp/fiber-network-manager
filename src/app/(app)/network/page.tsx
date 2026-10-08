@@ -7,6 +7,8 @@ import type {
   Fault,
   NetworkData,
   OltNode,
+  OltPortNode,
+  PonLink,
   PortNode,
   PortState,
   SplitterNode,
@@ -89,6 +91,18 @@ type FaultRow = {
   title: string;
 };
 type CustomerRow = { id: string; name: string; status: string };
+type OltPortRow = {
+  id: string;
+  olt_id: string;
+  port_number: number;
+  label: string | null;
+  description: string | null;
+  status: string;
+  sfp_module: string | null;
+  tx_power_dbm: number | string | null;
+  cable_id: string | null;
+  fiber_cores: { core_number: number; color: string } | null;
+};
 
 // Supabase returns at most 1000 rows per request, so read in pages.
 async function fetchAll<T>(
@@ -128,6 +142,7 @@ export default async function NetworkOverviewPage() {
     portRows,
     connRows,
     customerRows,
+    oltPortRows,
   ] = await Promise.all([
     supabase
       .from("olts")
@@ -206,6 +221,15 @@ export default async function NetworkOverviewPage() {
         .order("id")
         .range(a, b)
     ),
+    fetchAll<OltPortRow>((a, b) =>
+      supabase
+        .from("olt_ports")
+        .select(
+          "id, olt_id, port_number, label, description, status, sfp_module, tx_power_dbm, cable_id, fiber_cores(core_number, color)"
+        )
+        .order("id")
+        .range(a, b)
+    ),
   ]);
 
   const oltRows = (oltsRes.data ?? []) as unknown as OltRow[];
@@ -232,6 +256,40 @@ export default async function NetworkOverviewPage() {
 
   const cablesById = new Map(cableRows.map((c) => [c.id, c]));
   const boxesById = new Map(boxRows.map((b) => [b.id, b]));
+
+  const ponPortsByOlt = new Map<string, OltPortNode[]>();
+  const ponByCable = new Map<string, PonLink>();
+  const sortedOltPorts = [...oltPortRows].sort(
+    (a, b) => a.port_number - b.port_number
+  );
+  for (const p of sortedOltPorts) {
+    const label = p.label || `PON-${String(p.port_number).padStart(2, "0")}`;
+    const core = p.fiber_cores;
+    const node: OltPortNode = {
+      id: p.id,
+      number: p.port_number,
+      label,
+      description: p.description,
+      status: p.status,
+      sfp: p.sfp_module,
+      tx: p.tx_power_dbm !== null ? Number(p.tx_power_dbm) : null,
+      cableId: p.cable_id,
+      coreNumber: core ? core.core_number : null,
+      coreColor: core ? core.color : null,
+    };
+    const list = ponPortsByOlt.get(p.olt_id) ?? [];
+    list.push(node);
+    ponPortsByOlt.set(p.olt_id, list);
+    if (p.cable_id && !ponByCable.has(p.cable_id)) {
+      ponByCable.set(p.cable_id, {
+        number: p.port_number,
+        label,
+        description: p.description,
+        coreNumber: node.coreNumber,
+        coreColor: node.coreColor,
+      });
+    }
+  }
 
   const inLinksByCable = new Map<string, BoxCableRow[]>();
   const outLinksByBox = new Map<string, BoxCableRow[]>();
@@ -372,6 +430,7 @@ export default async function NetworkOverviewPage() {
       lengthM: row.length_meters !== null ? Number(row.length_meters) : null,
       status: row.status,
       faults: faultsFor("fiber_cable", row.id),
+      pon: ponByCable.get(row.id) ?? null,
       boxes,
     };
   }
@@ -393,6 +452,7 @@ export default async function NetworkOverviewPage() {
       ponPorts: o.total_pon_ports,
       status: o.status,
       faults: faultsFor("olt", o.id),
+      ports: ponPortsByOlt.get(o.id) ?? [],
       cables,
     };
   });
@@ -435,6 +495,10 @@ export default async function NetworkOverviewPage() {
       customers: customerRows.length,
       customersActive: customerRows.filter((c) => c.status === "active").length,
       openFaults: faultRows.length,
+      ponPorts: {
+        total: oltPortRows.length,
+        connected: oltPortRows.filter((p) => p.cable_id).length,
+      },
       ports,
     },
   };
