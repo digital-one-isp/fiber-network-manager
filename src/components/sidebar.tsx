@@ -7,10 +7,12 @@ const navItems = [
   { href: "/", label: "Dashboard" },
   { href: "/network", label: "Network Overview" },
   { href: "/olts", label: "OLTs" },
+  { href: "/switches", label: "Switches" },
   { href: "/fiber-cables", label: "Fiber Cables" },
   { href: "/tg-boxes", label: "TG / Joint Boxes" },
   { href: "/splitters", label: "Splitters" },
   { href: "/customers", label: "Customers" },
+  { href: "/resellers", label: "Resellers" },
   { href: "/faults", label: "Faults" },
   { href: "/map", label: "Network Map" },
 ];
