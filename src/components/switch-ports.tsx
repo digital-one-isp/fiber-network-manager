@@ -45,12 +45,14 @@ type PortRow = {
   cable_id: string | null;
   core_id: string | null;
   reseller_id: string | null;
+  upstream_id: string | null;
   vlan: number | null;
   bandwidth_mbps: number | null;
   notes: string | null;
   fiber_cables: { name: string } | null;
   fiber_cores: { core_number: number; color: string } | null;
   resellers: { id: string; name: string } | null;
+  upstream_providers: { id: string; name: string } | null;
 };
 type Opt = { id: string; name: string };
 type CableOpt = { id: string; name: string; cable_type: string; core_count: number };
@@ -64,6 +66,7 @@ type Draft = {
   vlan: string;
   bandwidth_mbps: string;
   reseller_id: string;
+  upstream_id: string;
   cable_id: string;
   core_id: string;
   description: string;
@@ -76,6 +79,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
   const [ports, setPorts] = useState<PortRow[]>([]);
   const [cables, setCables] = useState<CableOpt[]>([]);
   const [resellers, setResellers] = useState<Opt[]>([]);
+  const [upstreams, setUpstreams] = useState<Opt[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftCores, setDraftCores] = useState<CoreOpt[]>([]);
@@ -91,7 +95,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
     const { data } = await supabase
       .from("switch_ports")
       .select(
-        "id, port_number, label, speed, media, status, sfp_module, description, cable_id, core_id, reseller_id, vlan, bandwidth_mbps, notes, fiber_cables(name), fiber_cores(core_number, color), resellers(id, name)"
+        "id, port_number, label, speed, media, status, sfp_module, description, cable_id, core_id, reseller_id, upstream_id, vlan, bandwidth_mbps, notes, fiber_cables(name), fiber_cores(core_number, color), resellers(id, name), upstream_providers(id, name)"
       )
       .eq("switch_id", switchId)
       .order("port_number");
@@ -122,6 +126,11 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
       ]);
       setCables((cableList ?? []) as unknown as CableOpt[]);
       setResellers((resellerList ?? []) as unknown as Opt[]);
+      const { data: upstreamList } = await supabase
+        .from("upstream_providers")
+        .select("id, name")
+        .order("name");
+      setUpstreams((upstreamList ?? []) as unknown as Opt[]);
       await loadPorts();
     }
     init();
@@ -140,6 +149,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
       vlan: p.vlan !== null ? String(p.vlan) : "",
       bandwidth_mbps: p.bandwidth_mbps !== null ? String(p.bandwidth_mbps) : "",
       reseller_id: p.reseller_id ?? "",
+      upstream_id: p.upstream_id ?? "",
       cable_id: p.cable_id ?? "",
       core_id: p.core_id ?? "",
       description: p.description ?? "",
@@ -180,6 +190,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
         bandwidth_mbps:
           draft.bandwidth_mbps !== "" ? Number(draft.bandwidth_mbps) : null,
         reseller_id: draft.reseller_id || null,
+        upstream_id: draft.upstream_id || null,
         cable_id: draft.cable_id || null,
         core_id: draft.core_id || null,
         description: draft.description || null,
@@ -201,7 +212,13 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
     setSaving(true);
     const { error } = await supabase
       .from("switch_ports")
-      .update({ cable_id: null, core_id: null, reseller_id: null, status: "free" })
+      .update({
+        cable_id: null,
+        core_id: null,
+        reseller_id: null,
+        upstream_id: null,
+        status: "free",
+      })
       .eq("id", portId);
     setSaving(false);
     if (error) {
@@ -337,7 +354,18 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
                         )}
                       </span>
                     )}
-                    {!p.resellers && !p.fiber_cables && (
+                    {p.upstream_providers && (
+                      <Link
+                        href={`/upstreams/${p.upstream_providers.id}`}
+                        className="block font-medium text-blue-600 hover:underline"
+                      >
+                        {p.upstream_providers.name}
+                        <span className="ml-1.5 text-xs font-normal text-gray-500">
+                          upstream
+                        </span>
+                      </Link>
+                    )}
+                    {!p.resellers && !p.upstream_providers && !p.fiber_cables && (
                       <span className="text-gray-400">Nothing connected</span>
                     )}
                   </td>
@@ -474,13 +502,50 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
                           </label>
                           <select
                             value={draft.reseller_id}
-                            onChange={(e) => setField("reseller_id", e.target.value)}
+                            onChange={(e) =>
+                              setDraft((d) =>
+                                d
+                                  ? {
+                                      ...d,
+                                      reseller_id: e.target.value,
+                                      upstream_id: e.target.value ? "" : d.upstream_id,
+                                    }
+                                  : d
+                              )
+                            }
                             className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                           >
                             <option value="">(no reseller)</option>
                             {resellers.map((r) => (
                               <option key={r.id} value={r.id}>
                                 {r.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Upstream ISP
+                          </label>
+                          <select
+                            value={draft.upstream_id}
+                            onChange={(e) =>
+                              setDraft((d) =>
+                                d
+                                  ? {
+                                      ...d,
+                                      upstream_id: e.target.value,
+                                      reseller_id: e.target.value ? "" : d.reseller_id,
+                                    }
+                                  : d
+                              )
+                            }
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">(no upstream)</option>
+                            {upstreams.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name}
                               </option>
                             ))}
                           </select>

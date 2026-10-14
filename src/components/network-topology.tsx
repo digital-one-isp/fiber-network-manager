@@ -1227,7 +1227,13 @@ function DetailModal({
 
 /* ---------- The page component ---------- */
 
-export default function NetworkTopology({ data }: { data: NetworkData }) {
+export default function NetworkTopology({
+  data,
+  top,
+}: {
+  data: NetworkData;
+  top?: ReactNode;
+}) {
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<Selection[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -1603,6 +1609,7 @@ export default function NetworkTopology({ data }: { data: NetworkData }) {
       </section>
 
       <div className="space-y-5">
+        {vis === null && top}
         {visibleOlts.map((o) => {
           const tl = tally(o);
           const open = vis !== null || !collapsed.has(o.id);

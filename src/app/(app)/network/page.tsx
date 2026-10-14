@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import NetworkTopology from "@/components/network-topology";
+import CoreNetwork from "@/components/core-network";
+import { loadCoreNetwork } from "@/lib/core-network-data";
 import type {
   BoxNode,
   CableNode,
@@ -233,6 +235,7 @@ export default async function NetworkOverviewPage() {
   ]);
 
   const oltRows = (oltsRes.data ?? []) as unknown as OltRow[];
+  const core = await loadCoreNetwork(supabase);
 
   /* ---- lookups ---- */
 
@@ -503,5 +506,5 @@ export default async function NetworkOverviewPage() {
     },
   };
 
-  return <NetworkTopology data={data} />;
+  return <NetworkTopology data={data} top={<CoreNetwork core={core} />} />;
 }

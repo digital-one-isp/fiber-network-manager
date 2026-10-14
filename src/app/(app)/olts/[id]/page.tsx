@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import OltUplinks from "@/components/olt-uplinks";
 
 const statusOptions = ["active", "inactive", "maintenance", "faulty"];
 const portStatusOptions = ["free", "active", "reserved", "faulty", "disabled"];
@@ -430,6 +431,8 @@ export default function OltDetailPage({
           </div>
         </form>
       </div>
+
+      <OltUplinks oltId={id} />
 
       <div>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
