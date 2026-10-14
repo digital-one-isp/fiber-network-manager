@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import TgBoxSplices from "@/components/tg-box-splices";
 
 const boxCategories = [
   { value: "joint_2port", label: "Joint Box - 2 Port" },
@@ -946,91 +947,7 @@ export default function TgBoxDetailPage({
         </ul>
       </div>
 
-      {/* Splices */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">
-          Splices (Core ↔ Core)
-        </h2>
-
-        <div className="mb-4 flex flex-wrap items-end gap-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
-              Core A
-            </label>
-            <select
-              value={spliceCoreA}
-              onChange={(e) => setSpliceCoreA(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
-            >
-              <option value="">Select core...</option>
-              {allCoresInBox.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {coreLabel(c.id)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <span className="pb-2 text-gray-400">↔</span>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
-              Core B
-            </label>
-            <select
-              value={spliceCoreB}
-              onChange={(e) => setSpliceCoreB(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
-            >
-              <option value="">Select core...</option>
-              {allCoresInBox.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {coreLabel(c.id)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={addSplice}
-            className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800"
-          >
-            + Add Splice
-          </button>
-        </div>
-
-        <ul className="space-y-1">
-          {splices.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center justify-between rounded border border-gray-100 px-3 py-2 text-sm"
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className="h-3 w-3 rounded-full border border-gray-300"
-                  style={{ backgroundColor: coreColorDot(s.core_a_id) }}
-                />
-                <span>{coreLabel(s.core_a_id)}</span>
-                <span className="text-gray-400">↔</span>
-                <span
-                  className="h-3 w-3 rounded-full border border-gray-300"
-                  style={{ backgroundColor: coreColorDot(s.core_b_id) }}
-                />
-                <span>{coreLabel(s.core_b_id)}</span>
-              </div>
-              <button
-                onClick={() => removeSplice(s.id)}
-                className="text-xs text-red-500 hover:underline"
-              >
-                remove
-              </button>
-            </li>
-          ))}
-          {splices.length === 0 && (
-            <li className="text-xs text-gray-400">
-              No splices recorded yet. Link input/output cables above first.
-            </li>
-          )}
-        </ul>
-      </div>
+      <TgBoxSplices tgBoxId={id} />
 
       {/* Full splitter chain: add/edit/delete inline */}
       <div className="rounded-xl border border-gray-200 bg-white p-6">
