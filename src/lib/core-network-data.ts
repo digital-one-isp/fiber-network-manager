@@ -2,15 +2,30 @@ import type { createClient } from "@/lib/supabase/server";
 
 type Supa = Awaited<ReturnType<typeof createClient>>;
 
+export type LinkEnd = {
+  portId: string;
+  switchId: string;
+  switchName: string;
+  portLabel: string;
+  speed: string;
+  media: string;
+  sfp: string | null;
+  vlan: number | null;
+  bandwidthMbps: number | null;
+};
 export type CoreUpstream = {
   id: string;
   name: string;
   kind: string;
   service: string | null;
+  circuitId: string | null;
   capacityMbps: number | null;
   status: string;
-  portLabel: string;
-  speed: string;
+  siteName: string | null;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  via: LinkEnd | null;
 };
 export type CoreOlt = {
   id: string;
@@ -18,53 +33,71 @@ export type CoreOlt = {
   uplinkLabel: string | null;
   portLabel: string;
   speed: string;
+  media: string;
+  role: string;
   sfp: string | null;
 };
 export type CoreReseller = {
   id: string;
+  portId: string;
   name: string;
   status: string;
   bandwidthMbps: number | null;
-  portLabel: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  via: LinkEnd;
+};
+export type CorePort = {
+  id: string;
+  number: number;
+  label: string;
   speed: string;
+  media: string;
+  status: string;
   sfp: string | null;
   vlan: number | null;
+  bandwidthMbps: number | null;
+  description: string | null;
+  connection: {
+    kind: "upstream" | "reseller" | "olt" | "fiber";
+    id: string | null;
+    name: string;
+  } | null;
 };
 export type CoreSwitch = {
   id: string;
   name: string;
   vendor: string | null;
   model: string | null;
+  ip: string | null;
   role: string;
   status: string;
+  siteName: string | null;
   portsTotal: number;
   portsUsed: number;
   upstreams: CoreUpstream[];
   olts: CoreOlt[];
   resellers: CoreReseller[];
-};
-export type LooseUpstream = {
-  id: string;
-  name: string;
-  kind: string;
-  service: string | null;
-  capacityMbps: number | null;
-  status: string;
+  ports: CorePort[];
 };
 export type CoreSite = {
   id: string;
   name: string;
   type: string;
   address: string | null;
+  contactPerson: string | null;
+  phone: string | null;
   status: string;
   switches: CoreSwitch[];
-  looseUpstreams: LooseUpstream[];
+  looseUpstreams: CoreUpstream[];
   looseOlts: { id: string; name: string }[];
 };
 export type CoreData = {
   sites: CoreSite[];
   unplacedSwitches: CoreSwitch[];
-  unplacedUpstreams: LooseUpstream[];
+  unplacedUpstreams: CoreUpstream[];
 };
 
 type SiteRow = {
@@ -72,6 +105,8 @@ type SiteRow = {
   name: string;
   site_type: string;
   address: string | null;
+  contact_person: string | null;
+  phone: string | null;
   status: string;
 };
 type UpstreamRow = {
@@ -79,15 +114,20 @@ type UpstreamRow = {
   name: string;
   kind: string;
   service: string | null;
+  circuit_id: string | null;
   capacity_mbps: number | null;
   site_id: string | null;
   status: string;
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
 };
 type SwitchRow = {
   id: string;
   name: string;
   vendor: string | null;
   model: string | null;
+  management_ip: string | null;
   role: string;
   status: string;
   site_id: string | null;
@@ -98,23 +138,33 @@ type PortRow = {
   port_number: number;
   label: string | null;
   speed: string;
+  media: string;
   status: string;
   upstream_id: string | null;
   reseller_id: string | null;
   sfp_module: string | null;
   vlan: number | null;
+  bandwidth_mbps: number | null;
+  description: string | null;
+  fiber_cables: { name: string } | null;
 };
 type ResellerRow = {
   id: string;
   name: string;
   status: string;
   bandwidth_mbps: number | null;
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
 };
 type UplinkRow = {
   id: string;
   olt_id: string;
   label: string | null;
   speed: string;
+  media: string;
+  role: string;
   sfp_module: string | null;
   switch_port_id: string | null;
 };
@@ -142,21 +192,23 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       fetchAll<SiteRow>((a, b) =>
         supabase
           .from("sites")
-          .select("id, name, site_type, address, status")
+          .select("id, name, site_type, address, contact_person, phone, status")
           .order("id")
           .range(a, b)
       ),
       fetchAll<UpstreamRow>((a, b) =>
         supabase
           .from("upstream_providers")
-          .select("id, name, kind, service, capacity_mbps, site_id, status")
+          .select(
+            "id, name, kind, service, circuit_id, capacity_mbps, site_id, status, contact_person, phone, email"
+          )
           .order("id")
           .range(a, b)
       ),
       fetchAll<SwitchRow>((a, b) =>
         supabase
           .from("network_switches")
-          .select("id, name, vendor, model, role, status, site_id")
+          .select("id, name, vendor, model, management_ip, role, status, site_id")
           .order("id")
           .range(a, b)
       ),
@@ -164,7 +216,7 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
         supabase
           .from("switch_ports")
           .select(
-            "id, switch_id, port_number, label, speed, status, upstream_id, reseller_id, sfp_module, vlan"
+            "id, switch_id, port_number, label, speed, media, status, upstream_id, reseller_id, sfp_module, vlan, bandwidth_mbps, description, fiber_cables(name)"
           )
           .order("id")
           .range(a, b)
@@ -172,14 +224,14 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       fetchAll<ResellerRow>((a, b) =>
         supabase
           .from("resellers")
-          .select("id, name, status, bandwidth_mbps")
+          .select("id, name, status, bandwidth_mbps, contact_person, phone, email, address")
           .order("id")
           .range(a, b)
       ),
       fetchAll<UplinkRow>((a, b) =>
         supabase
           .from("olt_uplinks")
-          .select("id, olt_id, label, speed, sfp_module, switch_port_id")
+          .select("id, olt_id, label, speed, media, role, sfp_module, switch_port_id")
           .order("id")
           .range(a, b)
       ),
@@ -188,11 +240,49 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       ),
     ]);
 
-  const portLabel = (p: PortRow) => p.label || `Port ${p.port_number}`;
+  const siteById = new Map(siteRows.map((s) => [s.id, s]));
+  const switchRowById = new Map(switchRows.map((s) => [s.id, s]));
   const upstreamById = new Map(upstreamRows.map((u) => [u.id, u]));
   const resellerById = new Map(resellerRows.map((r) => [r.id, r]));
   const oltById = new Map(oltRows.map((o) => [o.id, o]));
   const portById = new Map(portRows.map((p) => [p.id, p]));
+
+  const portLabel = (p: PortRow) => p.label || `Port ${p.port_number}`;
+  const siteName = (id: string | null) => (id ? siteById.get(id)?.name ?? null : null);
+
+  const linkEnd = (p: PortRow): LinkEnd => ({
+    portId: p.id,
+    switchId: p.switch_id,
+    switchName: switchRowById.get(p.switch_id)?.name ?? "Switch",
+    portLabel: portLabel(p),
+    speed: p.speed,
+    media: p.media,
+    sfp: p.sfp_module,
+    vlan: p.vlan,
+    bandwidthMbps: p.bandwidth_mbps,
+  });
+
+  const upstreamNode = (u: UpstreamRow, via: LinkEnd | null): CoreUpstream => ({
+    id: u.id,
+    name: u.name,
+    kind: u.kind,
+    service: u.service,
+    circuitId: u.circuit_id,
+    capacityMbps: u.capacity_mbps,
+    status: u.status,
+    siteName: siteName(u.site_id),
+    contactPerson: u.contact_person,
+    phone: u.phone,
+    email: u.email,
+    via,
+  });
+
+  const uplinkByPort = new Map<string, { olt: OltRow; uplink: UplinkRow }>();
+  for (const u of uplinkRows) {
+    if (!u.switch_port_id) continue;
+    const olt = oltById.get(u.olt_id);
+    if (olt) uplinkByPort.set(u.switch_port_id, { olt, uplink: u });
+  }
 
   const portsBySwitch = new Map<string, PortRow[]>();
   for (const p of portRows) {
@@ -203,19 +293,52 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
 
   const switchNodes = new Map<string, CoreSwitch>();
   for (const s of switchRows) {
-    const ports = portsBySwitch.get(s.id) ?? [];
+    const ports = [...(portsBySwitch.get(s.id) ?? [])].sort(
+      (a, b) => a.port_number - b.port_number
+    );
     switchNodes.set(s.id, {
       id: s.id,
       name: s.name,
       vendor: s.vendor,
       model: s.model,
+      ip: s.management_ip,
       role: s.role,
       status: s.status,
+      siteName: siteName(s.site_id),
       portsTotal: ports.length,
       portsUsed: ports.filter((p) => p.status === "active").length,
       upstreams: [],
       olts: [],
       resellers: [],
+      ports: ports.map((p): CorePort => {
+        let connection: CorePort["connection"] = null;
+        if (p.upstream_id) {
+          const u = upstreamById.get(p.upstream_id);
+          if (u) connection = { kind: "upstream", id: u.id, name: u.name };
+        } else if (p.reseller_id) {
+          const r = resellerById.get(p.reseller_id);
+          if (r) connection = { kind: "reseller", id: r.id, name: r.name };
+        } else {
+          const up = uplinkByPort.get(p.id);
+          if (up) connection = { kind: "olt", id: up.olt.id, name: up.olt.name };
+          else if (p.fiber_cables) {
+            connection = { kind: "fiber", id: null, name: p.fiber_cables.name };
+          }
+        }
+        return {
+          id: p.id,
+          number: p.port_number,
+          label: portLabel(p),
+          speed: p.speed,
+          media: p.media,
+          status: p.status,
+          sfp: p.sfp_module,
+          vlan: p.vlan,
+          bandwidthMbps: p.bandwidth_mbps,
+          description: p.description,
+          connection,
+        };
+      }),
     });
   }
 
@@ -227,16 +350,7 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       const u = upstreamById.get(p.upstream_id);
       if (u) {
         attachedUpstreams.add(u.id);
-        node.upstreams.push({
-          id: u.id,
-          name: u.name,
-          kind: u.kind,
-          service: u.service,
-          capacityMbps: u.capacity_mbps,
-          status: u.status,
-          portLabel: portLabel(p),
-          speed: p.speed,
-        });
+        node.upstreams.push(upstreamNode(u, linkEnd(p)));
       }
     }
     if (p.reseller_id) {
@@ -244,48 +358,40 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       if (r) {
         node.resellers.push({
           id: r.id,
+          portId: p.id,
           name: r.name,
           status: r.status,
-          bandwidthMbps: p.vlan !== null || r.bandwidth_mbps !== null ? r.bandwidth_mbps : null,
-          portLabel: portLabel(p),
-          speed: p.speed,
-          sfp: p.sfp_module,
-          vlan: p.vlan,
+          bandwidthMbps: r.bandwidth_mbps,
+          contactPerson: r.contact_person,
+          phone: r.phone,
+          email: r.email,
+          address: r.address,
+          via: linkEnd(p),
         });
       }
     }
   }
 
   const oltsWithUplink = new Set<string>();
-  for (const u of uplinkRows) {
-    if (!u.switch_port_id) continue;
-    const port = portById.get(u.switch_port_id);
-    const olt = oltById.get(u.olt_id);
-    if (!port || !olt) continue;
-    const node = switchNodes.get(port.switch_id);
-    if (!node) continue;
-    oltsWithUplink.add(olt.id);
+  for (const [portId, entry] of uplinkByPort) {
+    const port = portById.get(portId);
+    const node = port ? switchNodes.get(port.switch_id) : undefined;
+    if (!port || !node) continue;
+    oltsWithUplink.add(entry.olt.id);
     node.olts.push({
-      id: olt.id,
-      name: olt.name,
-      uplinkLabel: u.label,
+      id: entry.olt.id,
+      name: entry.olt.name,
+      uplinkLabel: entry.uplink.label,
       portLabel: portLabel(port),
-      speed: u.speed,
-      sfp: u.sfp_module,
+      speed: entry.uplink.speed,
+      media: entry.uplink.media,
+      role: entry.uplink.role,
+      sfp: entry.uplink.sfp_module,
     });
   }
 
   const byRole = (a: CoreSwitch, b: CoreSwitch) =>
     (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9) || a.name.localeCompare(b.name);
-
-  const loose = (u: UpstreamRow): LooseUpstream => ({
-    id: u.id,
-    name: u.name,
-    kind: u.kind,
-    service: u.service,
-    capacityMbps: u.capacity_mbps,
-    status: u.status,
-  });
 
   const siteIds = new Set(siteRows.map((s) => s.id));
 
@@ -296,6 +402,8 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       name: s.name,
       type: s.site_type,
       address: s.address,
+      contactPerson: s.contact_person,
+      phone: s.phone,
       status: s.status,
       switches: switchRows
         .filter((sw) => sw.site_id === s.id)
@@ -304,7 +412,7 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
         .sort(byRole),
       looseUpstreams: upstreamRows
         .filter((u) => u.site_id === s.id && !attachedUpstreams.has(u.id))
-        .map(loose),
+        .map((u) => upstreamNode(u, null)),
       looseOlts: oltRows
         .filter((o) => o.site_id === s.id && !oltsWithUplink.has(o.id))
         .map((o) => ({ id: o.id, name: o.name })),
@@ -318,7 +426,7 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
 
   const unplacedUpstreams = upstreamRows
     .filter((u) => (!u.site_id || !siteIds.has(u.site_id)) && !attachedUpstreams.has(u.id))
-    .map(loose);
+    .map((u) => upstreamNode(u, null));
 
   return { sites, unplacedSwitches, unplacedUpstreams };
 }

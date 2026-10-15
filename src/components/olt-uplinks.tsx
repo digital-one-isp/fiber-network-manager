@@ -4,12 +4,54 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
-const speedOptions = ["1G", "2.5G", "10G", "25G", "40G", "100G"];
+const speedOptions = ["100M", "1G", "2.5G", "10G", "25G", "40G", "100G"];
+const mediaOptions = [
+  { value: "sfp", label: "SFP" },
+  { value: "sfp_plus", label: "SFP+" },
+  { value: "sfp28", label: "SFP28" },
+  { value: "qsfp", label: "QSFP" },
+  { value: "rj45", label: "RJ45 (copper)" },
+];
+const mediaLabel: Record<string, string> = {
+  sfp: "SFP",
+  sfp_plus: "SFP+",
+  sfp28: "SFP28",
+  qsfp: "QSFP",
+  rj45: "RJ45",
+};
+const roleOptions = [
+  { value: "uplink", label: "Uplink" },
+  { value: "management", label: "Management" },
+  { value: "other", label: "Other" },
+];
+const roleLabel: Record<string, string> = {
+  uplink: "Uplink",
+  management: "Management",
+  other: "Other",
+};
+const statusOptions = ["free", "active", "reserved", "faulty", "disabled"];
+const statusCls: Record<string, string> = {
+  free: "bg-gray-100 text-gray-600",
+  active: "bg-emerald-50 text-emerald-700",
+  reserved: "bg-amber-50 text-amber-700",
+  faulty: "bg-red-50 text-red-700",
+  disabled: "bg-slate-200 text-slate-700",
+};
 
-type Uplink = {
+const presets = [
+  { key: "ge", label: "1G SFP", speed: "1G", media: "sfp", role: "uplink", prefix: "GE" },
+  { key: "xge", label: "10G SFP+", speed: "10G", media: "sfp_plus", role: "uplink", prefix: "XGE" },
+  { key: "eth", label: "RJ45 (1G)", speed: "1G", media: "rj45", role: "uplink", prefix: "ETH" },
+  { key: "mgmt", label: "RJ45 management", speed: "1G", media: "rj45", role: "management", prefix: "MGMT" },
+];
+
+type PortRow = {
   id: string;
   label: string | null;
   speed: string;
+  media: string;
+  role: string;
+  status: string;
   sfp_module: string | null;
   description: string | null;
   switch_port_id: string | null;
@@ -20,7 +62,7 @@ type Uplink = {
     network_switches: { id: string; name: string } | null;
   } | null;
 };
-type PortOpt = {
+type SwitchPortOpt = {
   id: string;
   port_number: number;
   label: string | null;
@@ -32,28 +74,24 @@ type PortOpt = {
 type Draft = {
   label: string;
   speed: string;
+  media: string;
+  role: string;
+  status: string;
   sfp_module: string;
   switch_port_id: string;
   description: string;
 };
 
-const emptyDraft: Draft = {
-  label: "",
-  speed: "10G",
-  sfp_module: "",
-  switch_port_id: "",
-  description: "",
-};
-
 export default function OltUplinks({ oltId }: { oltId: string }) {
   const supabase = useMemo(() => createClient(), []);
 
-  const [uplinks, setUplinks] = useState<Uplink[]>([]);
-  const [ports, setPorts] = useState<PortOpt[]>([]);
+  const [ports, setPorts] = useState<PortRow[]>([]);
+  const [switchPorts, setSwitchPorts] = useState<SwitchPortOpt[]>([]);
   const [usedIds, setUsedIds] = useState<Set<string>>(new Set());
-  const [adding, setAdding] = useState<Draft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [presetKey, setPresetKey] = useState("xge");
+  const [count, setCount] = useState("2");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -62,10 +100,11 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       supabase
         .from("olt_uplinks")
         .select(
-          "id, label, speed, sfp_module, description, switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
+          "id, label, speed, media, role, status, sfp_module, description, switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
         )
         .eq("olt_id", oltId)
-        .order("created_at"),
+        .order("created_at")
+        .order("id"),
       supabase.from("olt_uplinks").select("switch_port_id"),
       supabase
         .from("switch_ports")
@@ -76,8 +115,8 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
         .order("port_number")
         .limit(1000),
     ]);
-    setUplinks((mine ?? []) as unknown as Uplink[]);
-    setPorts((portData ?? []) as unknown as PortOpt[]);
+    setPorts((mine ?? []) as unknown as PortRow[]);
+    setSwitchPorts((portData ?? []) as unknown as SwitchPortOpt[]);
     setUsedIds(
       new Set(
         ((all ?? []) as unknown as { switch_port_id: string | null }[])
@@ -92,8 +131,8 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
   }, [load]);
 
   function portOptions(current: string) {
-    const groups = new Map<string, { name: string; list: PortOpt[] }>();
-    for (const p of ports) {
+    const groups = new Map<string, { name: string; list: SwitchPortOpt[] }>();
+    for (const p of switchPorts) {
       if (p.reseller_id || p.upstream_id) continue;
       if (usedIds.has(p.id) && p.id !== current) continue;
       const key = p.network_switches?.id ?? "none";
@@ -112,109 +151,80 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
     ));
   }
 
-  function fields(d: Draft, set: (d: Draft) => void) {
-    return (
-      <div className="grid gap-3 md:grid-cols-4">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Uplink name</label>
-          <input
-            value={d.label}
-            onChange={(e) => set({ ...d, label: e.target.value })}
-            placeholder="e.g. Uplink 1"
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Speed</label>
-          <select
-            value={d.speed}
-            onChange={(e) => set({ ...d, speed: e.target.value })}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-          >
-            {speedOptions.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-600">SFP module</label>
-          <input
-            value={d.sfp_module}
-            onChange={(e) => set({ ...d, sfp_module: e.target.value })}
-            placeholder="e.g. 10G LR SFP+, 10 km"
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-600">
-            Connected to switch port
-          </label>
-          <select
-            value={d.switch_port_id}
-            onChange={(e) => set({ ...d, switch_port_id: e.target.value })}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">(not connected yet)</option>
-            {portOptions(d.switch_port_id)}
-          </select>
-        </div>
-        <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-600">Description</label>
-          <input
-            value={d.description}
-            onChange={(e) => set({ ...d, description: e.target.value })}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  function payload(d: Draft) {
-    return {
-      label: d.label || null,
-      speed: d.speed,
-      sfp_module: d.sfp_module || null,
-      switch_port_id: d.switch_port_id || null,
-      description: d.description || null,
-    };
-  }
-
-  async function addUplink(e: React.FormEvent) {
+  async function createPorts(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const preset = presets.find((p) => p.key === presetKey);
+    if (!preset) return;
+    const n = Math.max(1, Math.min(48, Number(count) || 0));
+    const existing = ports.filter((p) => (p.label ?? "").startsWith(preset.prefix + "-")).length;
+    const rows = Array.from({ length: n }).map((_, i) => ({
+      olt_id: oltId,
+      label: `${preset.prefix}-${String(existing + i + 1).padStart(2, "0")}`,
+      speed: preset.speed,
+      media: preset.media,
+      role: preset.role,
+    }));
     setBusy(true);
-    const { error } = await supabase
-      .from("olt_uplinks")
-      .insert({ olt_id: oltId, ...payload(adding) });
+    const { error } = await supabase.from("olt_uplinks").insert(rows);
     setBusy(false);
     if (error) {
       setError(error.message);
       return;
     }
-    setAdding(emptyDraft);
     await load();
   }
 
-  function startEdit(u: Uplink) {
+  function startEdit(p: PortRow) {
     setError(null);
-    setEditingId(u.id);
+    setEditingId(p.id);
     setDraft({
-      label: u.label ?? "",
-      speed: u.speed,
-      sfp_module: u.sfp_module ?? "",
-      switch_port_id: u.switch_port_id ?? "",
-      description: u.description ?? "",
+      label: p.label ?? "",
+      speed: p.speed,
+      media: p.media,
+      role: p.role,
+      status: p.status,
+      sfp_module: p.sfp_module ?? "",
+      switch_port_id: p.switch_port_id ?? "",
+      description: p.description ?? "",
     });
   }
 
+  function setField<K extends keyof Draft>(key: K, value: string) {
+    setDraft((d) => (d ? { ...d, [key]: value } : d));
+  }
+
   async function saveEdit(id: string) {
+    if (!draft) return;
     setError(null);
     setBusy(true);
-    const { error } = await supabase.from("olt_uplinks").update(payload(draft)).eq("id", id);
+    const { error } = await supabase
+      .from("olt_uplinks")
+      .update({
+        label: draft.label || null,
+        speed: draft.speed,
+        media: draft.media,
+        role: draft.role,
+        status: draft.status,
+        sfp_module: draft.sfp_module || null,
+        switch_port_id: draft.switch_port_id || null,
+        description: draft.description || null,
+      })
+      .eq("id", id);
     setBusy(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setEditingId(null);
+    setDraft(null);
+    await load();
+  }
+
+  async function removePort(id: string) {
+    if (!confirm("Delete this port?")) return;
+    setError(null);
+    const { error } = await supabase.from("olt_uplinks").delete().eq("id", id);
     if (error) {
       setError(error.message);
       return;
@@ -223,23 +233,20 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
     await load();
   }
 
-  async function removeUplink(id: string) {
-    if (!confirm("Remove this uplink?")) return;
-    setError(null);
-    const { error } = await supabase.from("olt_uplinks").delete().eq("id", id);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    await load();
-  }
+  const sfpCount = ports.filter((p) => p.media !== "rj45").length;
+  const rjCount = ports.length - sfpCount;
 
   return (
     <div>
-      <div className="mb-3">
-        <h2 className="text-lg font-semibold text-gray-900">Uplinks</h2>
-        <p className="text-sm text-gray-500">
-          The ports on this OLT that go up to a switch, and the switch port each one plugs into.
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">SFP and RJ45 ports</h2>
+          <p className="text-sm text-gray-500">
+            The uplink and management ports of this OLT, besides the PON ports below.
+          </p>
+        </div>
+        <p className="text-sm text-gray-600">
+          {ports.length} ports ({sfpCount} SFP, {rjCount} RJ45)
         </p>
       </div>
 
@@ -247,68 +254,197 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
         <table className="w-full text-left text-sm">
           <thead className="border-b border-gray-200 bg-gray-50">
             <tr>
-              <th className="px-4 py-3 font-medium text-gray-500">Uplink</th>
-              <th className="px-4 py-3 font-medium text-gray-500">Speed and SFP</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Port</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Type</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Status</th>
               <th className="px-4 py-3 font-medium text-gray-500">Connected to</th>
-              <th className="px-4 py-3 font-medium text-gray-500">Description</th>
+              <th className="px-4 py-3 font-medium text-gray-500">Module and description</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
-            {uplinks.map((u) => (
-              <Fragment key={u.id}>
+            {ports.map((p) => (
+              <Fragment key={p.id}>
                 <tr className="border-b border-gray-100 align-top last:border-0">
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {u.label || "Uplink"}
+                  <td className="px-4 py-3">
+                    <span className="font-medium text-gray-900">{p.label || "Port"}</span>
+                    <span className="block text-xs text-gray-400">
+                      {roleLabel[p.role] ?? p.role}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700">
-                    {u.speed}
+                    {p.speed}
                     <span className="block text-xs text-gray-500">
-                      {u.sfp_module ?? "SFP not set"}
+                      {mediaLabel[p.media] ?? p.media}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {u.switch_ports?.network_switches ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        statusCls[p.status] ?? statusCls.free
+                      }`}
+                    >
+                      {p.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {p.switch_ports?.network_switches ? (
                       <>
                         <Link
-                          href={`/switches/${u.switch_ports.network_switches.id}`}
+                          href={`/switches/${p.switch_ports.network_switches.id}`}
                           className="font-medium text-blue-600 hover:underline"
                         >
-                          {u.switch_ports.network_switches.name}
+                          {p.switch_ports.network_switches.name}
                         </Link>
                         <span className="block text-xs text-gray-500">
-                          {u.switch_ports.label || `Port ${u.switch_ports.port_number}`}
+                          {p.switch_ports.label || `Port ${p.switch_ports.port_number}`}
                         </span>
                       </>
                     ) : (
-                      <span className="text-gray-400">Not connected yet</span>
+                      <span className="text-gray-400">Not connected</span>
                     )}
                   </td>
                   <td className="max-w-xs px-4 py-3 text-gray-600">
-                    {u.description ?? <span className="text-gray-400">No description</span>}
+                    <span className="block">{p.sfp_module ?? "Module not set"}</span>
+                    {p.description && (
+                      <span className="block text-xs text-gray-500">{p.description}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
-                      onClick={() => (editingId === u.id ? setEditingId(null) : startEdit(u))}
+                      onClick={() => (editingId === p.id ? setEditingId(null) : startEdit(p))}
                       className="text-sm text-blue-600 hover:underline"
                     >
-                      {editingId === u.id ? "Close" : "Edit"}
+                      {editingId === p.id ? "Close" : "Edit"}
                     </button>
                   </td>
                 </tr>
-                {editingId === u.id && (
+
+                {editingId === p.id && draft && (
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <td colSpan={5} className="px-4 py-4">
-                      {fields(draft, setDraft)}
-                      <div className="mt-4 flex items-center gap-3">
+                    <td colSpan={6} className="px-4 py-4">
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Label
+                          </label>
+                          <input
+                            value={draft.label}
+                            onChange={(e) => setField("label", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Speed
+                          </label>
+                          <select
+                            value={draft.speed}
+                            onChange={(e) => setField("speed", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            {speedOptions.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Port type
+                          </label>
+                          <select
+                            value={draft.media}
+                            onChange={(e) => setField("media", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            {mediaOptions.map((m) => (
+                              <option key={m.value} value={m.value}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Use
+                          </label>
+                          <select
+                            value={draft.role}
+                            onChange={(e) => setField("role", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            {roleOptions.map((r) => (
+                              <option key={r.value} value={r.value}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Status
+                          </label>
+                          <select
+                            value={draft.status}
+                            onChange={(e) => setField("status", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            {statusOptions.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="md:col-span-3">
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            SFP module or cable
+                          </label>
+                          <input
+                            value={draft.sfp_module}
+                            onChange={(e) => setField("sfp_module", e.target.value)}
+                            placeholder="e.g. 10G LR SFP+, 10 km, or Cat6 patch cord"
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Connected to switch port
+                          </label>
+                          <select
+                            value={draft.switch_port_id}
+                            onChange={(e) => setField("switch_port_id", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">(not connected)</option>
+                            {portOptions(draft.switch_port_id)}
+                          </select>
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Description
+                          </label>
+                          <input
+                            value={draft.description}
+                            onChange={(e) => setField("description", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => saveEdit(u.id)}
+                          onClick={() => saveEdit(p.id)}
                           disabled={busy}
                           className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                         >
-                          {busy ? "Saving..." : "Save uplink"}
+                          {busy ? "Saving..." : "Save port"}
                         </button>
                         <button
                           type="button"
@@ -319,10 +455,10 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => removeUplink(u.id)}
+                          onClick={() => removePort(p.id)}
                           className="ml-auto rounded-md border border-red-300 bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                         >
-                          Remove uplink
+                          Delete port
                         </button>
                       </div>
                     </td>
@@ -330,10 +466,10 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                 )}
               </Fragment>
             ))}
-            {uplinks.length === 0 && (
+            {ports.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                  No uplink recorded for this OLT yet. Add one below.
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                  No SFP or RJ45 port recorded for this OLT yet. Create them below.
                 </td>
               </tr>
             )}
@@ -342,20 +478,45 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       </div>
 
       <form
-        onSubmit={addUplink}
-        className="mt-4 rounded-xl border border-dashed border-gray-300 bg-white p-4"
+        onSubmit={createPorts}
+        className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-dashed border-gray-300 bg-white p-4"
       >
-        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-400">
-          Add an uplink
-        </p>
-        {fields(adding, setAdding)}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">Port type</label>
+          <select
+            value={presetKey}
+            onChange={(e) => setPresetKey(e.target.value)}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            {presets.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">How many</label>
+          <input
+            type="number"
+            min={1}
+            max={48}
+            value={count}
+            onChange={(e) => setCount(e.target.value)}
+            className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+        </div>
         <button
           type="submit"
           disabled={busy}
-          className="mt-3 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
         >
-          Add uplink
+          Create ports
         </button>
+        <p className="w-full text-xs text-gray-500">
+          Ports are named automatically (XGE-01, GE-01, ETH-01, MGMT-01). Edit a port afterwards to
+          set its module, connection and description.
+        </p>
       </form>
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}

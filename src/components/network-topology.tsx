@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import CoreNetwork from "@/components/core-network";
+import type { CoreData } from "@/lib/core-network-data";
 
 /* ---------- Data types (built on the server, rendered here) ---------- */
 
@@ -86,9 +88,23 @@ export type OltNode = {
   status: string;
   faults: Fault[];
   ports: OltPortNode[];
+  otherPorts: OltOtherPort[];
   cables: CableNode[];
 };
 export type Ref = { id: string; name: string };
+export type OltOtherPort = {
+  id: string;
+  label: string;
+  speed: string;
+  media: string;
+  role: string;
+  status: string;
+  sfp: string | null;
+  description: string | null;
+  switchId: string | null;
+  switchName: string | null;
+  switchPortLabel: string | null;
+};
 export type PonLink = {
   number: number;
   label: string;
@@ -443,6 +459,28 @@ function tally(o: OltNode) {
   return t;
 }
 
+const mediaName: Record<string, string> = {
+  sfp: "SFP",
+  sfp_plus: "SFP+",
+  sfp28: "SFP28",
+  qsfp: "QSFP",
+  rj45: "RJ45",
+};
+const otherRoleLabel: Record<string, string> = {
+  uplink: "Uplink",
+  management: "Management",
+  other: "Other",
+};
+
+function portSummary(o: OltNode) {
+  const sfp = o.otherPorts.filter((p) => p.media !== "rj45").length;
+  const rj = o.otherPorts.length - sfp;
+  const parts = [`${o.ports.length} PON`];
+  if (sfp) parts.push(`${sfp} SFP`);
+  if (rj) parts.push(`${rj} RJ45`);
+  return parts.join(", ");
+}
+
 function splitterInUse(s: SplitterNode) {
   return s.ports.filter(
     (p) => p.state === "customer" || p.state === "cascade" || p.state === "used"
@@ -609,6 +647,7 @@ function describe(sel: Selection): Info {
           "PON ports",
           `${o.ports.filter((p) => p.cableId).length} of ${o.ponPorts} connected`,
         ],
+        ["SFP and RJ45 ports", String(o.otherPorts.length)],
         ["Cables attached", String(o.cables.length)],
         ["Address", o.address],
         ["Coordinates", fmtCoords(o.lat, o.lng)],
@@ -1008,6 +1047,69 @@ function DetailModal({
             </section>
           )}
 
+          {sel.kind === "olt" && sel.node.otherPorts.length > 0 && (
+            <section className="mt-6">
+              <SectionTitle>SFP and RJ45 ports</SectionTitle>
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-left text-xs text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Port</th>
+                      <th className="px-3 py-2 font-medium">Type</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Connected to</th>
+                      <th className="px-3 py-2 font-medium">Module and description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sel.node.otherPorts.map((p) => (
+                      <tr key={p.id} className="border-t border-gray-100 align-top">
+                        <td className="px-3 py-2">
+                          <span className="font-medium text-gray-900">{p.label}</span>
+                          <span className="block text-xs text-gray-400">
+                            {otherRoleLabel[p.role] ?? p.role}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {p.speed} {mediaName[p.media] ?? p.media}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              ponStatusCls[p.status] ?? ponStatusCls.free
+                            }`}
+                          >
+                            {p.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {p.switchName ? (
+                            <>
+                              {p.switchName}
+                              {p.switchPortLabel && (
+                                <span className="block text-xs text-gray-500">
+                                  {p.switchPortLabel}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-gray-400">Not connected</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {p.sfp ?? <span className="text-gray-400">Module not set</span>}
+                          {p.description && (
+                            <span className="block text-xs text-gray-500">{p.description}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           {sel.kind === "olt" && sel.node.cables.length > 0 && (
             <section className="mt-6">
               <SectionTitle>Cables from this OLT</SectionTitle>
@@ -1229,10 +1331,10 @@ function DetailModal({
 
 export default function NetworkTopology({
   data,
-  top,
+  core,
 }: {
   data: NetworkData;
-  top?: ReactNode;
+  core?: CoreData;
 }) {
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<Selection[]>([]);
@@ -1448,6 +1550,9 @@ export default function NetworkTopology({
         </span>
         <span className="mt-0.5 block text-xs text-white/70">
           {[o.vendor, o.model].filter(Boolean).join(" ") || "Device not set"}
+          <span className="mt-0.5 block text-[11px] text-white/60">
+            {portSummary(o)}
+          </span>
         </span>
         <span
           className="mt-2 flex max-w-[9rem] flex-wrap gap-1"
@@ -1467,6 +1572,11 @@ export default function NetworkTopology({
     );
 
     return <Chain node={card} kids={kids} />;
+  }
+
+  function openOlt(id: string) {
+    const o = data.olts.find((x) => x.id === id);
+    if (o) openFromMap(selOlt(o));
   }
 
   const t = data.totals;
@@ -1609,7 +1719,7 @@ export default function NetworkTopology({
       </section>
 
       <div className="space-y-5">
-        {vis === null && top}
+        {vis === null && core && <CoreNetwork core={core} onOpenOlt={openOlt} />}
         {visibleOlts.map((o) => {
           const tl = tally(o);
           const open = vis !== null || !collapsed.has(o.id);

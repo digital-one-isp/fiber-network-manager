@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import NetworkTopology from "@/components/network-topology";
-import CoreNetwork from "@/components/core-network";
 import { loadCoreNetwork } from "@/lib/core-network-data";
 import type {
   BoxNode,
@@ -9,6 +8,7 @@ import type {
   Fault,
   NetworkData,
   OltNode,
+  OltOtherPort,
   OltPortNode,
   PonLink,
   PortNode,
@@ -93,6 +93,22 @@ type FaultRow = {
   title: string;
 };
 type CustomerRow = { id: string; name: string; status: string };
+type OltOtherRow = {
+  id: string;
+  olt_id: string;
+  label: string | null;
+  speed: string;
+  media: string;
+  role: string;
+  status: string;
+  sfp_module: string | null;
+  description: string | null;
+  switch_ports: {
+    port_number: number;
+    label: string | null;
+    network_switches: { id: string; name: string } | null;
+  } | null;
+};
 type OltPortRow = {
   id: string;
   olt_id: string;
@@ -236,6 +252,36 @@ export default async function NetworkOverviewPage() {
 
   const oltRows = (oltsRes.data ?? []) as unknown as OltRow[];
   const core = await loadCoreNetwork(supabase);
+
+  const otherRows = await fetchAll<OltOtherRow>((a, b) =>
+    supabase
+      .from("olt_uplinks")
+      .select(
+        "id, olt_id, label, speed, media, role, status, sfp_module, description, switch_ports(port_number, label, network_switches(id, name))"
+      )
+      .order("created_at")
+      .order("id")
+      .range(a, b)
+  );
+  const otherByOlt = new Map<string, OltOtherPort[]>();
+  for (const r of otherRows) {
+    const sp = r.switch_ports;
+    const list = otherByOlt.get(r.olt_id) ?? [];
+    list.push({
+      id: r.id,
+      label: r.label || "Port",
+      speed: r.speed,
+      media: r.media,
+      role: r.role,
+      status: r.status,
+      sfp: r.sfp_module,
+      description: r.description,
+      switchId: sp?.network_switches?.id ?? null,
+      switchName: sp?.network_switches?.name ?? null,
+      switchPortLabel: sp ? sp.label || `Port ${sp.port_number}` : null,
+    });
+    otherByOlt.set(r.olt_id, list);
+  }
 
   /* ---- lookups ---- */
 
@@ -456,6 +502,7 @@ export default async function NetworkOverviewPage() {
       status: o.status,
       faults: faultsFor("olt", o.id),
       ports: ponPortsByOlt.get(o.id) ?? [],
+      otherPorts: otherByOlt.get(o.id) ?? [],
       cables,
     };
   });
@@ -506,5 +553,5 @@ export default async function NetworkOverviewPage() {
     },
   };
 
-  return <NetworkTopology data={data} top={<CoreNetwork core={core} />} />;
+  return <NetworkTopology data={data} core={core} />;
 }
