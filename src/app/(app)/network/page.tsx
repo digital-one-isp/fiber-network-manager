@@ -13,6 +13,7 @@ import type {
   PonLink,
   PortNode,
   PortState,
+  RoutePoint,
   SplitterNode,
 } from "@/components/network-topology";
 
@@ -93,6 +94,19 @@ type FaultRow = {
   title: string;
 };
 type CustomerRow = { id: string; name: string; status: string };
+type RouteRow = {
+  id: string;
+  cable_id: string;
+  sort_order: number;
+  length_mark_m: number | string | null;
+  place: string | null;
+  kind: string;
+  route_note: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  tg_boxes: { name: string } | null;
+  olts: { name: string } | null;
+};
 type OltOtherRow = {
   id: string;
   olt_id: string;
@@ -263,6 +277,30 @@ export default async function NetworkOverviewPage() {
       .order("id")
       .range(a, b)
   );
+  const routeRows = await fetchAll<RouteRow>((a, b) =>
+    supabase
+      .from("cable_route_points")
+      .select(
+        "id, cable_id, sort_order, length_mark_m, place, kind, route_note, latitude, longitude, tg_boxes(name), olts(name)"
+      )
+      .order("id")
+      .range(a, b)
+  );
+  const routeByCable = new Map<string, RoutePoint[]>();
+  for (const r of [...routeRows].sort((x, y) => Number(x.sort_order) - Number(y.sort_order))) {
+    const list = routeByCable.get(r.cable_id) ?? [];
+    list.push({
+      id: r.id,
+      mark: r.length_mark_m === null ? null : Number(r.length_mark_m),
+      place: r.place,
+      kind: r.kind,
+      note: r.route_note,
+      lat: r.latitude,
+      lng: r.longitude,
+      linked: r.tg_boxes?.name ?? r.olts?.name ?? null,
+    });
+    routeByCable.set(r.cable_id, list);
+  }
   const otherByOlt = new Map<string, OltOtherPort[]>();
   for (const r of otherRows) {
     const sp = r.switch_ports;
@@ -480,6 +518,7 @@ export default async function NetworkOverviewPage() {
       status: row.status,
       faults: faultsFor("fiber_cable", row.id),
       pon: ponByCable.get(row.id) ?? null,
+      route: routeByCable.get(row.id) ?? [],
       boxes,
     };
   }

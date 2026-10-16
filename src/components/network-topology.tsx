@@ -73,6 +73,7 @@ export type CableNode = {
   status: string;
   faults: Fault[];
   pon: PonLink | null;
+  route: RoutePoint[];
   boxes: BoxNode[];
 };
 export type OltNode = {
@@ -90,6 +91,16 @@ export type OltNode = {
   ports: OltPortNode[];
   otherPorts: OltOtherPort[];
   cables: CableNode[];
+};
+export type RoutePoint = {
+  id: string;
+  mark: number | null;
+  place: string | null;
+  kind: string;
+  note: string | null;
+  lat: number | null;
+  lng: number | null;
+  linked: string | null;
 };
 export type Ref = { id: string; name: string };
 export type OltOtherPort = {
@@ -252,6 +263,19 @@ function ponLed(p: OltPortNode) {
   if (p.cableId) return C.feeder;
   if (p.status === "reserved") return "#60a5fa";
   return "rgba(255,255,255,0.22)";
+}
+
+function routeLength(route: RoutePoint[]) {
+  let total = 0;
+  for (let i = 1; i < route.length; i++) {
+    const a = route[i - 1].mark;
+    const b = route[i].mark;
+    if (a !== null && b !== null) total += Math.abs(b - a);
+  }
+  return total;
+}
+function fmtM(n: number) {
+  return `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} m`;
 }
 
 function plural(n: number, word: string) {
@@ -522,7 +546,7 @@ function computeVisible(olts: OltNode[], q: string): Set<string> | null {
     return any;
   }
   function cable(c: CableNode, force: boolean): boolean {
-    const self = force || hit(c.name, c.type, c.pon?.label, c.pon?.description);
+    const self = force || hit(c.name, c.type, c.pon?.label, c.pon?.description, ...c.route.flatMap((r) => [r.place, r.linked]));
     let any = self;
     for (const b of c.boxes) if (box(b, self)) any = true;
     if (any) vis.add("cb:" + c.id);
@@ -671,6 +695,12 @@ function describe(sel: Selection): Info {
         ["In use", String(c.usedCores)],
         ["Damaged", String(c.damagedCores)],
         ["Length", c.lengthM !== null ? `${c.lengthM} m` : null],
+        [
+          "Route",
+          c.route.length > 0
+            ? `${c.route.length} points, ${fmtM(routeLength(c.route))} from the marks`
+            : null,
+        ],
       ],
       faults: c.faults,
       href: `/fiber-cables/${c.id}`,
@@ -1184,6 +1214,70 @@ function DetailModal({
                 </section>
               )}
             </>
+          )}
+
+          {sel.kind === "cable" && sel.node.route.length > 0 && (
+            <section className="mt-6">
+              <SectionTitle>
+                Route, {plural(sel.node.route.length, "point")}, {fmtM(routeLength(sel.node.route))}
+              </SectionTitle>
+              {(() => {
+                const route = sel.node.route;
+                let run = 0;
+                return (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-left text-xs text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Point</th>
+                          <th className="px-3 py-2 font-medium">Place</th>
+                          <th className="px-3 py-2 font-medium">Length mark</th>
+                          <th className="px-3 py-2 font-medium">Leg</th>
+                          <th className="px-3 py-2 font-medium">From start</th>
+                          <th className="px-3 py-2 font-medium">How it goes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {route.map((p, i) => {
+                          const prev = i > 0 ? route[i - 1] : null;
+                          const leg =
+                            prev && prev.mark !== null && p.mark !== null
+                              ? Math.abs(p.mark - prev.mark)
+                              : null;
+                          run += leg ?? 0;
+                          const tag =
+                            i === 0 ? "Start" : i === route.length - 1 ? "End" : `Via ${i}`;
+                          return (
+                            <tr key={p.id} className="border-t border-gray-100 align-top">
+                              <td className="px-3 py-2 text-gray-700">{tag}</td>
+                              <td className="px-3 py-2 text-gray-900">
+                                {p.place || p.linked || "Unnamed point"}
+                                <span className="block text-xs text-gray-400">
+                                  {cap(p.kind.replace("_", " "))}
+                                  {p.linked && p.place ? `, ${p.linked}` : ""}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 tabular-nums text-gray-700">
+                                {p.mark !== null ? fmtM(p.mark) : "Not set"}
+                              </td>
+                              <td className="px-3 py-2 tabular-nums text-gray-700">
+                                {leg !== null ? fmtM(leg) : "-"}
+                              </td>
+                              <td className="px-3 py-2 tabular-nums text-gray-700">
+                                {i === 0 ? "-" : fmtM(run)}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {p.note ?? <span className="text-gray-400">-</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </section>
           )}
 
           {sel.kind === "box" && (

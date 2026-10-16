@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import CableRoute from "@/components/cable-route";
 
 const cableTypes = ["feeder", "distribution", "drop"];
 const statusOptions = ["active", "inactive", "maintenance", "faulty"];
@@ -424,6 +425,11 @@ export default function FiberCableDetailPage({
           </div>
         </form>
       </div>
+
+      <CableRoute
+        cableId={id}
+        onLengthUpdated={(m) => update("length_meters", String(m))}
+      />
 
       <div>
         <h2 className="mb-3 text-lg font-semibold text-gray-900">Tubes</h2>
