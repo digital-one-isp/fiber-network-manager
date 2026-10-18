@@ -1421,7 +1421,278 @@ function DetailModal({
   );
 }
 
-/* ---------- The page component ---------- */
+/* ---------- The page component (redesigned) ---------- */
+
+// Fixed widths per level keep every branch in the same column.
+const W = {
+  olt: "w-56",
+  cable: "w-60",
+  box: "w-56",
+  splitter: "w-60",
+  leaf: "w-52",
+} as const;
+
+const COLS = [
+  { label: "OLT", w: W.olt, color: "#0f2a4a" },
+  { label: "Fiber cable", w: W.cable, color: "#f59e0b" },
+  { label: "TG box", w: W.box, color: "#ea580c" },
+  { label: "Splitter", w: W.splitter, color: "#16a34a" },
+  { label: "Customer or next splitter", w: W.leaf, color: "#e11d48" },
+];
+
+const dotGrid = {
+  backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+  backgroundSize: "18px 18px",
+};
+
+const pillCls =
+  "shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400";
+
+function countLabel(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+function fmtRate(n: number) {
+  if (n >= 1000) {
+    const g = n / 1000;
+    return `${Number.isInteger(g) ? g : g.toFixed(1)} Gbps`;
+  }
+  return `${n} Mbps`;
+}
+function fmtLength(n: number) {
+  return n >= 1000 ? `${(n / 1000).toFixed(2)} km` : `${n} m`;
+}
+function pctOf(a: number, b: number) {
+  return b > 0 ? (a / b) * 100 : 0;
+}
+
+function FlowCloud() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M7 18a4 4 0 010-8 5 5 0 019.6-1.2A4 4 0 0117 18H7z" />
+    </svg>
+  );
+}
+function FlowSwitch() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="8" width="18" height="8" rx="1.5" />
+      <path d="M7 12h.01M11 12h.01M15 12h.01M19 12h.01" />
+    </svg>
+  );
+}
+
+type FKid = { color: string; label?: string; node: ReactNode };
+
+// Children sit to the right, joined by a rail. Each line ends in an arrow
+// and may carry a small label (for example the splitter port number).
+function FlowFork({ kids }: { kids: FKid[] }) {
+  return (
+    <div className="flex flex-col">
+      {kids.map((k, i) => (
+        <div key={i} className="relative flex items-center py-1.5 pl-7">
+          <span
+            className="absolute left-0 top-1/2 h-0.5 w-7 -translate-y-1/2"
+            style={{ background: k.color }}
+          />
+          <span
+            aria-hidden="true"
+            className="absolute left-[21px] top-1/2 -translate-y-1/2 border-y-[4px] border-l-[7px] border-y-transparent"
+            style={{ borderLeftColor: k.color }}
+          />
+          {k.label && (
+            <span className="absolute left-0 top-1/2 -mt-1 w-[21px] -translate-y-full text-center text-[9px] font-semibold leading-none text-slate-500">
+              {k.label}
+            </span>
+          )}
+          {kids.length > 1 && (
+            <span
+              className="absolute left-0 w-0.5"
+              style={{
+                background: k.color,
+                top: i === 0 ? "50%" : 0,
+                bottom: i === kids.length - 1 ? "50%" : 0,
+              }}
+            />
+          )}
+          {k.node}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FlowChain({ node, kids }: { node: ReactNode; kids: FKid[] }) {
+  return (
+    <div className="flex items-center">
+      {node}
+      {kids.length > 0 && (
+        <>
+          <span className="h-0.5 w-7 shrink-0" style={{ background: kids[0].color }} />
+          <FlowFork kids={kids} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function NodeCard({
+  width,
+  color,
+  icon,
+  title,
+  badge,
+  subtitle,
+  dot,
+  faults,
+  active,
+  onClick,
+  compact,
+  children,
+}: {
+  width: string;
+  color: string;
+  icon: ReactNode;
+  title: string;
+  badge?: string;
+  subtitle?: string | null;
+  dot?: string;
+  faults?: Fault[];
+  active: boolean;
+  onClick: () => void;
+  compact?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${width} shrink-0 rounded-xl border bg-white text-left shadow-sm transition-colors hover:border-slate-400 hover:shadow-md motion-reduce:transition-none ${focusRing} ${
+        compact ? "p-2.5" : "p-3"
+      } ${active ? "border-gray-900 ring-2 ring-gray-900/10" : "border-slate-200"}`}
+    >
+      <span className="flex items-start gap-2.5">
+        <span
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+          style={{ background: color + "1a", color }}
+        >
+          {icon}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-semibold text-gray-900">{title}</span>
+            {badge && (
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                {badge}
+              </span>
+            )}
+            {dot && (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot }} />
+            )}
+            {faults && <FaultDot faults={faults} />}
+          </span>
+          {subtitle && (
+            <span className="block truncate text-xs text-gray-500">{subtitle}</span>
+          )}
+        </span>
+      </span>
+      {children}
+    </button>
+  );
+}
+
+function Ring({ pct, color }: { pct: number; color: string }) {
+  const p = Math.max(0, Math.min(100, pct));
+  return (
+    <span
+      className="grid h-14 w-14 shrink-0 place-items-center rounded-full"
+      style={{
+        background: `conic-gradient(${color} 0deg ${p * 3.6}deg, #e5e7eb ${p * 3.6}deg 360deg)`,
+      }}
+    >
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-xs font-semibold tabular-nums text-gray-900">
+        {Math.round(p)}%
+      </span>
+    </span>
+  );
+}
+
+type Stage = {
+  key: string;
+  label: string;
+  value: string;
+  sub: string;
+  color: string;
+  href: string;
+  icon: ReactNode;
+  pct?: number;
+};
+
+function StageCard({ s }: { s: Stage }) {
+  return (
+    <Link
+      href={s.href}
+      className={`flex w-44 shrink-0 flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-colors hover:border-slate-400 hover:shadow-md motion-reduce:transition-none ${focusRing}`}
+    >
+      <span className="flex items-center gap-2">
+        <span
+          className="grid h-8 w-8 place-items-center rounded-lg"
+          style={{ background: s.color + "1a", color: s.color }}
+        >
+          {s.icon}
+        </span>
+        <span className="text-xs font-medium text-slate-600">{s.label}</span>
+      </span>
+      <span className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-gray-900">
+        {s.value}
+      </span>
+      <span className="mt-0.5 text-xs text-gray-500">{s.sub}</span>
+      {s.pct !== undefined && (
+        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <span
+            className="block h-full rounded-full"
+            style={{ width: `${Math.max(0, Math.min(100, s.pct))}%`, background: s.color }}
+          />
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function FlowArrow() {
+  return (
+    <span aria-hidden="true" className="flex shrink-0 items-center px-1">
+      <span className="h-0.5 w-4 bg-slate-300" />
+      <span className="border-y-[5px] border-l-[7px] border-y-transparent border-l-slate-300" />
+    </span>
+  );
+}
+
+function HealthCard({
+  label,
+  used,
+  total,
+  color,
+  note,
+}: {
+  label: string;
+  used: number;
+  total: number;
+  color: string;
+  note?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <Ring pct={pctOf(used, total)} color={color} />
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="text-sm font-semibold tabular-nums text-gray-900">
+          {used} of {total}
+        </p>
+        {note && <p className="text-xs text-slate-500">{note}</p>}
+      </div>
+    </div>
+  );
+}
 
 export default function NetworkTopology({
   data,
@@ -1453,6 +1724,13 @@ export default function NetworkTopology({
     });
   }
 
+  function openOlt(id: string) {
+    const o = data.olts.find((x) => x.id === id);
+    if (o) openFromMap(selOlt(o));
+  }
+
+  /* ----- diagram nodes ----- */
+
   function renderCustomer(
     cu: CustomerLeaf,
     portId: string,
@@ -1461,22 +1739,19 @@ export default function NetworkTopology({
   ) {
     const sel = selCustomer(cu, portId, portNumber, parent);
     return (
-      <button
-        type="button"
+      <NodeCard
+        key={sel.key}
+        width={W.leaf}
+        compact
+        color={C.customer}
+        icon={<IconHouse />}
+        title={cu.name}
+        subtitle={cu.pkg ?? cu.phone ?? "Customer"}
+        dot={statusColor(cu.status)}
+        faults={cu.faults}
+        active={isActive(sel.key)}
         onClick={() => openFromMap(sel)}
-        className={chipCls(isActive(sel.key))}
-      >
-        <span style={{ color: C.customer }}>
-          <IconHouse />
-        </span>
-        <span className="font-medium text-gray-900">{cu.name}</span>
-        <span
-          className="h-2 w-2 rounded-full"
-          style={{ background: statusColor(cu.status) }}
-          title={cu.status}
-        />
-        <FaultDot faults={cu.faults} />
-      </button>
+      />
     );
   }
 
@@ -1484,15 +1759,13 @@ export default function NetworkTopology({
     const sel = selSplitter(sp, parent, via);
     const inUse = splitterInUse(sp);
 
-    const kids: Kid[] = sp.ports
+    const kids: FKid[] = sp.ports
       .filter((p) => (p.customer || p.child) && show("pt:" + p.id))
       .map((p) => ({
         color: p.child ? C.distribution : C.drop,
+        label: `P${p.number}`,
         node: (
           <div className="flex items-center gap-2">
-            <span className="rounded-[4px] bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
-              P{p.number}
-            </span>
             {p.customer && renderCustomer(p.customer, p.id, p.number, sel.path)}
             {p.child && renderSplitter(p.child, sel.path, p.number)}
           </div>
@@ -1500,23 +1773,19 @@ export default function NetworkTopology({
       }));
 
     const card = (
-      <button
-        type="button"
+      <NodeCard
+        width={W.splitter}
+        color={C.splitter}
+        icon={<IconSplitter />}
+        title={sp.name}
+        badge={sp.ratio}
+        subtitle={via ? `Fed from port ${via}` : null}
+        dot={statusColor(sp.status)}
+        faults={sp.faults}
+        active={isActive(sel.key)}
         onClick={() => openFromMap(sel)}
-        className={cardCls(isActive(sel.key))}
-        style={{ borderTopColor: C.splitter, borderTopWidth: 3 }}
       >
-        <span className="flex items-center gap-2">
-          <span style={{ color: C.splitter }}>
-            <IconSplitter />
-          </span>
-          <span className="text-sm font-medium text-gray-900">{sp.name}</span>
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-            {sp.ratio}
-          </span>
-          <FaultDot faults={sp.faults} />
-        </span>
-        <span className="mt-2 flex max-w-[11rem] flex-wrap gap-1">
+        <span className="mt-2.5 flex flex-wrap gap-1">
           {sp.ports.map((p) => (
             <PortTile key={p.id} p={p} />
           ))}
@@ -1525,15 +1794,15 @@ export default function NetworkTopology({
           <Bar value={inUse} total={sp.ports.length} color={C.splitter} />
           {inUse} of {sp.ports.length} ports in use
         </span>
-      </button>
+      </NodeCard>
     );
 
-    return <Chain key={sp.id} node={card} kids={kids} />;
+    return <FlowChain key={sp.id} node={card} kids={kids} />;
   }
 
   function renderBox(b: BoxNode, parent: Crumb[]): ReactNode {
     const sel = selBox(b, parent);
-    const kids: Kid[] = [];
+    const kids: FKid[] = [];
     for (const sp of b.splitters) {
       if (show("sp:" + sp.id)) {
         kids.push({ color: C.splitter, node: renderSplitter(sp, sel.path) });
@@ -1546,57 +1815,54 @@ export default function NetworkTopology({
     }
 
     const card = (
-      <button
-        type="button"
+      <NodeCard
+        width={W.box}
+        color={C.box}
+        icon={<IconBox />}
+        title={b.name}
+        subtitle={categoryLabel[b.category ?? ""] ?? "Category not set"}
+        dot={statusColor(b.status)}
+        faults={b.faults}
+        active={isActive(sel.key)}
         onClick={() => openFromMap(sel)}
-        className={cardCls(isActive(sel.key))}
-        style={{ borderTopColor: C.box, borderTopWidth: 3 }}
       >
-        <span className="flex items-center gap-2">
-          <span style={{ color: C.box }}>
-            <IconBox />
-          </span>
-          <span className="text-sm font-medium text-gray-900">{b.name}</span>
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ background: statusColor(b.status) }}
-            title={b.status}
-          />
-          <FaultDot faults={b.faults} />
+        <span className="mt-2 block text-[11px] text-gray-500">
+          {countLabel(b.splitters.length, "splitter", "splitters")} inside
         </span>
-        <span className="mt-1 block text-xs text-gray-500">
-          {categoryLabel[b.category ?? ""] ?? "Category not set"}
-        </span>
-      </button>
+      </NodeCard>
     );
 
-    return <Chain key={b.id} node={card} kids={kids} />;
+    return <FlowChain key={b.id} node={card} kids={kids} />;
   }
 
   function renderCable(c: CableNode, parent: Crumb[]): ReactNode {
     const sel = selCable(c, parent);
     const color = cableColor(c.type);
-    const kids: Kid[] = c.boxes
+    const kids: FKid[] = c.boxes
       .filter((b) => show("bx:" + b.id))
       .map((b) => ({ color, node: renderBox(b, sel.path) }));
 
+    const detail = [
+      cap(c.type),
+      countLabel(c.coreCount, "core", "cores"),
+      c.lengthM !== null ? fmtLength(c.lengthM) : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
     const card = (
-      <button
-        type="button"
+      <NodeCard
+        width={W.cable}
+        color={color}
+        icon={<IconCable />}
+        title={c.name}
+        subtitle={detail}
+        faults={c.faults}
+        active={isActive(sel.key)}
         onClick={() => openFromMap(sel)}
-        className={cardCls(isActive(sel.key))}
-        style={{ borderLeftColor: color, borderLeftWidth: 4 }}
       >
-        <span className="flex items-center gap-2">
-          <span style={{ color }}>
-            <IconCable />
-          </span>
-          <span className="text-sm font-medium text-gray-900">{c.name}</span>
-          <span className="text-xs capitalize text-gray-500">{c.type}</span>
-          <FaultDot faults={c.faults} />
-        </span>
         {c.pon && (
-          <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-700">
+          <span className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-700">
             <span className="rounded-[4px] bg-slate-800 px-1.5 py-0.5 font-medium text-white">
               {c.pon.label}
             </span>
@@ -1611,95 +1877,169 @@ export default function NetworkTopology({
             )}
           </span>
         )}
-        <span className="mt-1.5 flex items-center gap-2 text-[11px] text-gray-500">
+        <span className="mt-2 flex items-center gap-2 text-[11px] text-gray-500">
           <Bar value={c.usedCores} total={c.coreCount} color={color} />
           {c.usedCores} of {c.coreCount} cores in use
         </span>
-      </button>
+      </NodeCard>
     );
 
-    return <Chain key={c.id} node={card} kids={kids} />;
+    return <FlowChain key={c.id} node={card} kids={kids} />;
   }
 
   function renderOlt(o: OltNode): ReactNode {
     const sel = selOlt(o);
-    const kids: Kid[] = o.cables
+    const kids: FKid[] = o.cables
       .filter((c) => show("cb:" + c.id))
       .map((c) => ({ color: cableColor(c.type), node: renderCable(c, sel.path) }));
-
 
     const card = (
       <button
         type="button"
         onClick={() => openFromMap(sel)}
-        className={`shrink-0 rounded-xl px-4 py-3 text-left text-white shadow-sm ${focusRing} ${
-          isActive(sel.key) ? "ring-2 ring-gray-900 ring-offset-2" : ""
+        className={`${W.olt} shrink-0 rounded-xl p-3 text-left text-white shadow-md ${focusRing} ${
+          isActive(sel.key) ? "ring-2 ring-slate-900 ring-offset-2" : ""
         }`}
         style={{ background: C.navy }}
       >
-        <span className="flex items-center gap-2">
-          <IconOlt />
-          <span className="text-sm font-semibold">{o.name}</span>
-          <FaultDot faults={o.faults} />
-        </span>
-        <span className="mt-0.5 block text-xs text-white/70">
-          {[o.vendor, o.model].filter(Boolean).join(" ") || "Device not set"}
-          <span className="mt-0.5 block text-[11px] text-white/60">
-            {portSummary(o)}
+        <span className="flex items-start gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/10">
+            <IconOlt />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-semibold">{o.name}</span>
+              <FaultDot faults={o.faults} />
+            </span>
+            <span className="block truncate text-xs text-white/70">
+              {[o.vendor, o.model].filter(Boolean).join(" ") || "Device not set"}
+            </span>
           </span>
         </span>
+        <span className="mt-2 block text-[11px] text-white/60">{portSummary(o)}</span>
         <span
-          className="mt-2 flex max-w-[9rem] flex-wrap gap-1"
+          className="mt-1.5 flex flex-wrap gap-1"
           title="PON ports (lit = has a cable)"
         >
-          {o.ports.slice(0, 32).map((p, i) => (
+          {o.ports.slice(0, 32).map((p) => (
             <span
-              key={i}
+              key={p.id}
               className="h-1.5 w-1.5 rounded-full"
-              style={{
-                background: ponLed(p),
-              }}
+              style={{ background: ponLed(p) }}
             />
           ))}
         </span>
       </button>
     );
 
-    return <Chain node={card} kids={kids} />;
+    return <FlowChain node={card} kids={kids} />;
   }
 
-  function openOlt(id: string) {
-    const o = data.olts.find((x) => x.id === id);
-    if (o) openFromMap(selOlt(o));
-  }
+  /* ----- numbers for the top of the page ----- */
 
   const t = data.totals;
   const pt = t.ports;
-  const portSegments = [
-    { label: "In use", n: pt.used, color: "#16a34a" },
-    { label: "Reserved", n: pt.reserved, color: "#f59e0b" },
-    { label: "Damaged", n: pt.damaged, color: "#dc2626" },
-    { label: "Free", n: pt.free, color: "#d1d5db" },
-  ];
-  const facts = [
-    { label: "OLTs", value: String(t.olts) },
+
+  const upstreamCap = new Map<string, number | null>();
+  const switchIds = new Set<string>();
+  const resellerIds = new Set<string>();
+  if (core) {
+    const switches = [...core.sites.flatMap((s) => s.switches), ...core.unplacedSwitches];
+    for (const s of switches) {
+      switchIds.add(s.id);
+      for (const u of s.upstreams) upstreamCap.set(u.id, u.capacityMbps);
+      for (const r of s.resellers) resellerIds.add(r.id);
+    }
+    const loose = [
+      ...core.sites.flatMap((s) => s.looseUpstreams),
+      ...core.unplacedUpstreams,
+    ];
+    for (const u of loose) upstreamCap.set(u.id, u.capacityMbps);
+  }
+  let upstreamTotal = 0;
+  for (const v of upstreamCap.values()) upstreamTotal += v ?? 0;
+
+  const stages: Stage[] = [
     {
-      label: "PON ports in use",
-      value: `${t.ponPorts.connected}/${t.ponPorts.total}`,
+      key: "up",
+      label: "Upstream ISPs",
+      value: String(upstreamCap.size),
+      sub: upstreamCap.size > 0 ? `${fmtRate(upstreamTotal)} in total` : "None added yet",
+      color: "#0284c7",
+      href: "/upstreams",
+      icon: <FlowCloud />,
     },
-    { label: "Cables", value: String(t.cables) },
-    { label: "Cores in use", value: `${t.coresUsed}/${t.coresTotal}` },
-    { label: "TG boxes", value: String(t.boxes) },
-    { label: "Splitters", value: String(t.splitters) },
-    { label: "Active customers", value: `${t.customersActive}/${t.customers}` },
+    {
+      key: "sw",
+      label: "Switches",
+      value: String(switchIds.size),
+      sub: `${countLabel(resellerIds.size, "reseller", "resellers")} served`,
+      color: C.navy,
+      href: "/switches",
+      icon: <FlowSwitch />,
+    },
+    {
+      key: "olt",
+      label: "OLTs",
+      value: String(t.olts),
+      sub: `${t.ponPorts.connected} of ${t.ponPorts.total} PON ports in use`,
+      color: "#334155",
+      href: "/olts",
+      icon: <IconOlt />,
+      pct: pctOf(t.ponPorts.connected, t.ponPorts.total),
+    },
+    {
+      key: "cab",
+      label: "Fiber cables",
+      value: String(t.cables),
+      sub: `${t.coresUsed} of ${t.coresTotal} cores in use`,
+      color: C.feeder,
+      href: "/fiber-cables",
+      icon: <IconCable />,
+      pct: pctOf(t.coresUsed, t.coresTotal),
+    },
+    {
+      key: "box",
+      label: "TG boxes",
+      value: String(t.boxes),
+      sub: "Joint and splitter boxes",
+      color: C.box,
+      href: "/tg-boxes",
+      icon: <IconBox />,
+    },
+    {
+      key: "spl",
+      label: "Splitters",
+      value: String(t.splitters),
+      sub: `${pt.used} of ${pt.total} ports in use`,
+      color: C.splitter,
+      href: "/splitters",
+      icon: <IconSplitter />,
+      pct: pctOf(pt.used, pt.total),
+    },
+    {
+      key: "cus",
+      label: "Customers",
+      value: String(t.customers),
+      sub: `${t.customersActive} active`,
+      color: C.customer,
+      href: "/customers",
+      icon: <IconHouse />,
+      pct: pctOf(t.customersActive, t.customers),
+    },
   ];
-  const legend = [
-    { label: "Feeder", color: C.feeder },
-    { label: "Distribution", color: C.distribution },
-    { label: "Drop", color: C.drop },
+
+  const lineLegend = [
+    { label: "Feeder cable", color: C.feeder },
+    { label: "Distribution cable", color: C.distribution },
+    { label: "Drop to customer", color: C.drop },
     { label: "Inside a box", color: C.splitter },
+    { label: "Upstream link", color: "#0284c7" },
+    { label: "OLT uplink", color: "#334155" },
+    { label: "Reseller handoff", color: "#0d9488" },
   ];
   const tileLegend: PortState[] = ["customer", "cascade", "used", "reserved", "damaged", "free"];
+  const nodeLegend: NodeKind[] = ["olt", "cable", "box", "splitter", "customer"];
 
   const orphanGroups = [
     { label: "Cables", items: data.orphans.cables, href: "/fiber-cables/" },
@@ -1709,153 +2049,301 @@ export default function NetworkTopology({
   ].filter((g) => g.items.length > 0);
 
   const visibleOlts = data.olts.filter((o) => show("ol:" + o.id));
+  const allOltIds = data.olts.map((o) => o.id);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-            Network overview
-          </h1>
-          <p className="mt-1 max-w-xl text-sm text-gray-500">
-            Follow the fiber from each OLT through cables, boxes and splitters to the
-            customer. Select anything to open its details.
-          </p>
-        </div>
-        <label className="relative block w-full sm:w-72">
-          <span className="sr-only">Search the network</span>
-          <svg
-            viewBox="0 0 24 24"
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          >
-            <circle cx="11" cy="11" r="6" />
-            <path d="M20 20l-4-4" />
-          </svg>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, ratio or phone"
-            className="w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-gray-900"
-          />
-        </label>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+          Network overview
+        </h1>
+        <p className="mt-1 max-w-2xl text-sm text-slate-500">
+          See how the internet reaches your customers, step by step, and where capacity or
+          faults need attention.
+        </p>
       </div>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-            {facts.map((f) => (
-              <div key={f.label} className="flex gap-1.5">
-                <dt className="text-gray-500">{f.label}</dt>
-                <dd className="font-semibold tabular-nums text-gray-900">{f.value}</dd>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold text-slate-900">From upstream to customer</h2>
+          <p className="text-xs text-slate-500">
+            Each step shows what you have and how much of it is in use. Select a step to open its
+            list.
+          </p>
+        </div>
+        <div className="overflow-x-auto pb-1">
+          <div className="flex min-w-max items-center">
+            {stages.map((s, i) => (
+              <div key={s.key} className="flex items-center">
+                <StageCard s={s} />
+                {i < stages.length - 1 && <FlowArrow />}
               </div>
-            ))}
-          </dl>
-          {t.openFaults > 0 ? (
-            <span className="flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
-              <span className="h-2 w-2 rounded-full bg-red-600" />
-              {plural(t.openFaults, "open fault")}
-            </span>
-          ) : (
-            <span className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-              <span className="h-2 w-2 rounded-full bg-emerald-600" />
-              No open faults
-            </span>
-          )}
-        </div>
-
-        <div className="mt-4">
-          <div className="flex h-2.5 overflow-hidden rounded-full bg-gray-100">
-            {portSegments.map((s) => (
-              <div
-                key={s.label}
-                style={{
-                  width: pt.total ? `${(s.n / pt.total) * 100}%` : 0,
-                  background: s.color,
-                }}
-              />
-            ))}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
-            {portSegments.map((s) => (
-              <span key={s.label} className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
-                {s.label}
-                <b className="font-semibold tabular-nums text-gray-800">{s.n}</b>
-              </span>
-            ))}
-            <span className="text-gray-400">splitter ports ({pt.total} total)</span>
-          </div>
-        </div>
-
-        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 text-xs text-gray-500">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-            <span>Line colors</span>
-            {legend.map((l) => (
-              <span key={l.label} className="flex items-center gap-1.5">
-                <span className="h-0.5 w-5" style={{ background: l.color }} />
-                {l.label}
-              </span>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-            <span>Port tiles</span>
-            {tileLegend.map((s) => (
-              <span key={s} className="flex items-center gap-1.5">
-                <span className={`h-3 w-3 rounded-[3px] border ${portStyle[s]}`} />
-                {portLabel[s]}
-              </span>
             ))}
           </div>
         </div>
       </section>
 
-      <div className="space-y-5">
-        {vis === null && core && <CoreNetwork core={core} onOpenOlt={openOlt} />}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <HealthCard
+          label="PON ports in use"
+          used={t.ponPorts.connected}
+          total={t.ponPorts.total}
+          color="#334155"
+        />
+        <HealthCard
+          label="Splitter ports in use"
+          used={pt.used}
+          total={pt.total}
+          color={C.splitter}
+          note={pt.damaged > 0 ? `${pt.damaged} damaged` : undefined}
+        />
+        <HealthCard
+          label="Fiber cores in use"
+          used={t.coresUsed}
+          total={t.coresTotal}
+          color={C.feeder}
+        />
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <span
+            className={`grid h-14 w-14 shrink-0 place-items-center rounded-full text-lg font-semibold tabular-nums ${
+              t.openFaults > 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {t.openFaults}
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs text-slate-500">Open faults</p>
+            <p className="text-sm font-semibold text-gray-900">
+              {t.openFaults > 0 ? "Needs attention" : "All clear"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <details className="group rounded-xl border border-slate-200 bg-white">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-slate-800 [&::-webkit-details-marker]:hidden">
+          How to read this map
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4 text-slate-500 transition-transform group-open:rotate-180"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </summary>
+        <div className="grid gap-5 border-t border-slate-100 px-4 py-4 text-xs text-slate-600 md:grid-cols-3">
+          <div>
+            <p className="mb-2 font-medium text-slate-800">Line colors</p>
+            <div className="space-y-1.5">
+              {lineLegend.map((l) => (
+                <span key={l.label} className="flex items-center gap-2">
+                  <span className="h-0.5 w-6" style={{ background: l.color }} />
+                  {l.label}
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 text-slate-500">
+              Arrows point downstream. The label on a line is the splitter port it leaves from.
+            </p>
+          </div>
+          <div>
+            <p className="mb-2 font-medium text-slate-800">Splitter port tiles</p>
+            <div className="space-y-1.5">
+              {tileLegend.map((s) => (
+                <span key={s} className="flex items-center gap-2">
+                  <span className={`h-4 w-4 rounded-[3px] border ${portStyle[s]}`} />
+                  {portLabel[s]}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 font-medium text-slate-800">What the boxes are</p>
+            <div className="space-y-1.5">
+              {nodeLegend.map((k) => (
+                <span key={k} className="flex items-center gap-2">
+                  <span
+                    className="grid h-6 w-6 place-items-center rounded-md"
+                    style={{ background: kindColor[k] + "1a", color: kindColor[k] }}
+                  >
+                    {kindIcon[k]}
+                  </span>
+                  {kindLabel[k]}
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 text-slate-500">
+              Select any box on the map to open its details. Long names are shortened on the map
+              and shown in full in the details.
+            </p>
+          </div>
+        </div>
+      </details>
+
+      <div className="sticky top-0 z-20 -mx-6 border-b border-slate-200 bg-slate-50/90 px-6 py-3 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="relative block w-full sm:w-72">
+            <span className="sr-only">Search the network</span>
+            <svg
+              viewBox="0 0 24 24"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
+              <circle cx="11" cy="11" r="6" />
+              <path d="M20 20l-4-4" />
+            </svg>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, ratio, phone or pole"
+              className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-gray-900"
+            />
+          </label>
+          <nav
+            aria-label="Jump to a section"
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
+          >
+            <span className="shrink-0 text-xs text-slate-500">Jump to</span>
+            {core && (
+              <a href="#office" className={pillCls}>
+                Office and upstream
+              </a>
+            )}
+            {data.olts.map((o) => (
+              <a key={o.id} href={`#olt-${o.id}`} className={pillCls}>
+                {o.name}
+              </a>
+            ))}
+          </nav>
+          {data.olts.length > 0 && (
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => setCollapsed(new Set())}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                onClick={() => setCollapsed(new Set(allOltIds))}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Collapse all
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {vis === null && core && (
+          <div id="office" className="scroll-mt-20">
+            <CoreNetwork core={core} onOpenOlt={openOlt} />
+          </div>
+        )}
+
         {visibleOlts.map((o) => {
           const tl = tally(o);
           const open = vis !== null || !collapsed.has(o.id);
+          const sel = selOlt(o);
+          const chips = [
+            countLabel(tl.cables, "cable", "cables"),
+            countLabel(tl.boxes, "box", "boxes"),
+            countLabel(tl.splitters, "splitter", "splitters"),
+            countLabel(tl.customers, "customer", "customers"),
+          ];
           return (
             <section
               key={o.id}
-              className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+              id={`olt-${o.id}`}
+              className="scroll-mt-20 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
             >
               <div
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-white"
+                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 text-white"
                 style={{ background: C.navy }}
               >
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: statusColor(o.status) }}
-                  />
-                  <h2 className="text-sm font-semibold">{o.name}</h2>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/10">
+                    <IconOlt />
+                  </span>
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => openFromMap(sel)}
+                      className="block max-w-full truncate text-left text-sm font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-white"
+                    >
+                      {o.name}
+                    </button>
+                    <span className="flex items-center gap-1.5 text-xs text-white/70">
+                      <span
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{ background: statusColor(o.status) }}
+                      />
+                      {cap(o.status)}, {portSummary(o)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/70">
-                  <span>{plural(tl.cables, "cable")}</span>
-                  <span>{plural(tl.boxes, "box")}</span>
-                  <span>{plural(tl.splitters, "splitter")}</span>
-                  <span>{plural(tl.customers, "customer")}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {chips.map((c) => (
+                    <span
+                      key={c}
+                      className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/85"
+                    >
+                      {c}
+                    </span>
+                  ))}
                   <button
                     type="button"
                     onClick={() => toggle(o.id)}
                     aria-expanded={open}
-                    className="rounded-md bg-white/10 px-2 py-1 text-white hover:bg-white/20"
+                    aria-label={open ? `Collapse ${o.name}` : `Expand ${o.name}`}
+                    className="rounded-md bg-white/10 p-1.5 text-white hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white"
                   >
-                    {open ? "Collapse" : "Expand"}
+                    <svg
+                      viewBox="0 0 24 24"
+                      className={`h-4 w-4 transition-transform motion-reduce:transition-none ${
+                        open ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
                   </button>
                 </div>
               </div>
+
               {open && (
-                <div className="overflow-x-auto p-5">
-                  {renderOlt(o)}
-                  {o.cables.length === 0 && (
-                    <p className="mt-3 text-sm text-gray-400">
-                      No cable starts at this OLT yet. Create a feeder cable and choose this OLT.
-                    </p>
-                  )}
+                <div className="overflow-x-auto bg-slate-50 px-5 py-5" style={dotGrid}>
+                  <div className="min-w-max">
+                    <div className="mb-4 flex gap-14 border-b border-slate-200 pb-2">
+                      {COLS.map((c) => (
+                        <div
+                          key={c.label}
+                          className={`${c.w} flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-500`}
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ background: c.color }}
+                          />
+                          {c.label}
+                        </div>
+                      ))}
+                    </div>
+                    {renderOlt(o)}
+                    {o.cables.length === 0 && (
+                      <p className="mt-4 text-sm text-slate-500">
+                        No cable starts at this OLT yet. Create a feeder cable and choose this
+                        OLT, or plug a cable into one of its PON ports.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </section>
@@ -1863,8 +2351,8 @@ export default function NetworkTopology({
         })}
 
         {data.olts.length === 0 && (
-          <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center">
-            <p className="text-sm text-gray-600">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+            <p className="text-sm text-slate-600">
               There are no OLTs yet. Add your first OLT to start mapping the network.
             </p>
             <Link
@@ -1877,13 +2365,14 @@ export default function NetworkTopology({
         )}
 
         {vis !== null && visibleOlts.length === 0 && (
-          <p className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
-            Nothing matches &ldquo;{query}&rdquo;. Try a customer name, a splitter ratio or a phone number.
+          <p className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+            Nothing matches &ldquo;{query}&rdquo;. Try a customer name, a splitter ratio, a phone
+            number or a pole number.
           </p>
         )}
 
         {vis === null && orphanGroups.length > 0 && (
-          <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
             <h2 className="text-sm font-semibold text-amber-900">Not linked into a path yet</h2>
             <p className="mt-0.5 text-xs text-amber-800/80">
               These records exist but are not connected to an OLT, a cable or a splitter port.

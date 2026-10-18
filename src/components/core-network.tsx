@@ -683,7 +683,13 @@ export default function CoreNetwork({
           </div>
         </div>
 
-        <div className="space-y-4 overflow-x-auto p-5">
+        <div
+          className="space-y-4 overflow-x-auto bg-slate-50 p-5"
+          style={{
+            backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+            backgroundSize: "18px 18px",
+          }}
+        >
           {site.address && <p className="text-xs text-gray-500">{site.address}</p>}
 
           {site.switches.map((s) => switchRow(s))}
