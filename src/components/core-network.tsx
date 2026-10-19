@@ -57,6 +57,20 @@ const mediaName: Record<string, string> = {
   qsfp: "QSFP",
   rj45: "RJ45",
 };
+const linkName: Record<string, string> = {
+  fiber: "fiber",
+  dac: "DAC cable",
+  cat5e: "Cat5e cable",
+  cat6: "Cat6 cable",
+  cat6a: "Cat6a cable",
+  other: "other cable",
+};
+function linkWords(type: string | null, len: number | null) {
+  if (!type) return null;
+  const name = linkName[type] ?? type;
+  return len !== null ? `${name}, ${len} m` : name;
+}
+
 const portStatusCls: Record<string, string> = {
   free: "bg-gray-100 text-gray-600",
   active: "bg-emerald-50 text-emerald-700",
@@ -571,6 +585,7 @@ export default function CoreNetwork({
           {o.uplinkLabel ? `${o.uplinkLabel}, ` : ""}
           {o.speed} {mediaName[o.media] ?? o.media} on {o.portLabel}
           {o.sfp ? `, ${o.sfp}` : ""}
+          {o.linkType ? `, via ${linkName[o.linkType] ?? o.linkType}` : ""}
         </span>
       </button>
     );
@@ -796,6 +811,7 @@ export default function CoreNetwork({
             ],
             ["SFP module", u.via ? u.via.sfp : null],
             ["VLAN", u.via && u.via.vlan !== null ? String(u.via.vlan) : null],
+            ["Connected with", u.via ? linkWords(u.via.linkType, u.via.linkLengthM) : null],
             ["Contact", u.contactPerson],
             ["Phone", u.phone],
             ["Email", u.email],
@@ -867,7 +883,7 @@ export default function CoreNetwork({
                     title={o.name}
                     meta={`${o.uplinkLabel ? `${o.uplinkLabel}, ` : ""}${o.speed} ${
                       mediaName[o.media] ?? o.media
-                    } on ${o.portLabel}`}
+                    } on ${o.portLabel}${o.linkType ? `, via ${linkName[o.linkType] ?? o.linkType}` : ""}`}
                     onClick={() => openOlt(o.id)}
                   />
                 ))}
@@ -981,6 +997,7 @@ export default function CoreNetwork({
             ],
             ["SFP module", r.via.sfp],
             ["VLAN", r.via.vlan !== null ? String(r.via.vlan) : null],
+            ["Connected with", linkWords(r.via.linkType, r.via.linkLengthM)],
             [
               "Port bandwidth",
               r.via.bandwidthMbps !== null ? formatMbps(r.via.bandwidthMbps) : null,

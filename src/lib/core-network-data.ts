@@ -12,6 +12,8 @@ export type LinkEnd = {
   sfp: string | null;
   vlan: number | null;
   bandwidthMbps: number | null;
+  linkType: string | null;
+  linkLengthM: number | null;
 };
 export type CoreUpstream = {
   id: string;
@@ -36,6 +38,8 @@ export type CoreOlt = {
   media: string;
   role: string;
   sfp: string | null;
+  linkType: string | null;
+  linkLengthM: number | null;
 };
 export type CoreReseller = {
   id: string;
@@ -145,6 +149,8 @@ type PortRow = {
   sfp_module: string | null;
   vlan: number | null;
   bandwidth_mbps: number | null;
+  link_type: string | null;
+  link_length_m: number | string | null;
   description: string | null;
   fiber_cables: { name: string } | null;
 };
@@ -167,6 +173,8 @@ type UplinkRow = {
   role: string;
   sfp_module: string | null;
   switch_port_id: string | null;
+  link_type: string | null;
+  link_length_m: number | string | null;
 };
 type OltRow = { id: string; name: string; site_id: string | null };
 
@@ -216,7 +224,7 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
         supabase
           .from("switch_ports")
           .select(
-            "id, switch_id, port_number, label, speed, media, status, upstream_id, reseller_id, sfp_module, vlan, bandwidth_mbps, description, fiber_cables(name)"
+            "id, switch_id, port_number, label, speed, media, status, upstream_id, reseller_id, sfp_module, vlan, bandwidth_mbps, link_type, link_length_m, description, fiber_cables(name)"
           )
           .order("id")
           .range(a, b)
@@ -231,7 +239,7 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       fetchAll<UplinkRow>((a, b) =>
         supabase
           .from("olt_uplinks")
-          .select("id, olt_id, label, speed, media, role, sfp_module, switch_port_id")
+          .select("id, olt_id, label, speed, media, role, sfp_module, switch_port_id, link_type, link_length_m")
           .order("id")
           .range(a, b)
       ),
@@ -260,6 +268,8 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
     sfp: p.sfp_module,
     vlan: p.vlan,
     bandwidthMbps: p.bandwidth_mbps,
+    linkType: p.link_type,
+    linkLengthM: p.link_length_m === null ? null : Number(p.link_length_m),
   });
 
   const upstreamNode = (u: UpstreamRow, via: LinkEnd | null): CoreUpstream => ({
@@ -387,6 +397,9 @@ export async function loadCoreNetwork(supabase: Supa): Promise<CoreData> {
       media: entry.uplink.media,
       role: entry.uplink.role,
       sfp: entry.uplink.sfp_module,
+      linkType: entry.uplink.link_type,
+      linkLengthM:
+        entry.uplink.link_length_m === null ? null : Number(entry.uplink.link_length_m),
     });
   }
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import CoreNetwork from "@/components/core-network";
+import BoxInside from "@/components/box-inside";
 import type { CoreData } from "@/lib/core-network-data";
 
 /* ---------- Data types (built on the server, rendered here) ---------- */
@@ -1280,6 +1281,8 @@ function DetailModal({
             </section>
           )}
 
+          {sel.kind === "box" && <BoxInside boxId={sel.node.id} />}
+
           {sel.kind === "box" && (
             <>
               {sel.node.splitters.length > 0 && (
@@ -1436,8 +1439,7 @@ const COLS = [
   { label: "OLT", w: W.olt, color: "#0f2a4a" },
   { label: "Fiber cable", w: W.cable, color: "#f59e0b" },
   { label: "TG box", w: W.box, color: "#ea580c" },
-  { label: "Splitter", w: W.splitter, color: "#16a34a" },
-  { label: "Customer or next splitter", w: W.leaf, color: "#e11d48" },
+  { label: "Splitters, customers and links to other boxes", w: "w-[26rem]", color: "#16a34a" },
 ];
 
 const dotGrid = {
@@ -1828,6 +1830,12 @@ export default function NetworkTopology({
       >
         <span className="mt-2 block text-[11px] text-gray-500">
           {countLabel(b.splitters.length, "splitter", "splitters")} inside
+          {b.outCables.length > 0
+            ? `, links on to ${
+                b.outCables.flatMap((c) => c.boxes.map((x) => x.name)).join(", ") ||
+                "another box"
+              }`
+            : ""}
         </span>
       </NodeCard>
     );

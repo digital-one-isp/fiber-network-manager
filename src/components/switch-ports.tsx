@@ -20,6 +20,33 @@ const mediaLabel: Record<string, string> = {
   rj45: "RJ45",
 };
 const statusOptions = ["free", "active", "reserved", "faulty", "disabled"];
+const linkOptions = [
+  { value: "fiber", label: "Fiber (patch cord or cable)" },
+  { value: "dac", label: "DAC cable (direct attach)" },
+  { value: "cat5e", label: "RJ45 Cat5e" },
+  { value: "cat6", label: "RJ45 Cat6" },
+  { value: "cat6a", label: "RJ45 Cat6a" },
+  { value: "other", label: "Other" },
+];
+const linkLabel: Record<string, string> = {};
+for (const o of linkOptions) linkLabel[o.value] = o.label;
+function linkText(
+  type: string | null | undefined,
+  len: number | string | null | undefined
+) {
+  if (!type) return null;
+  const base = linkLabel[type] ?? type;
+  return len !== null && len !== undefined && len !== "" ? `${base}, ${len} m` : base;
+}
+function linkHint(media: string, type: string) {
+  if (type === "dac" && media === "rj45") {
+    return "A DAC cable needs an SFP, SFP+ or SFP28 port, not an RJ45 port.";
+  }
+  if (["cat5e", "cat6", "cat6a"].includes(type) && media !== "rj45") {
+    return "Cat5e, Cat6 and Cat6a cables plug into RJ45 ports. Choose an RJ45 port type, or an RJ45 SFP module.";
+  }
+  return null;
+}
 const statusCls: Record<string, string> = {
   free: "bg-gray-100 text-gray-600",
   active: "bg-emerald-50 text-emerald-700",
@@ -46,6 +73,9 @@ type PortRow = {
   core_id: string | null;
   reseller_id: string | null;
   upstream_id: string | null;
+  link_type: string | null;
+  link_length_m: number | string | null;
+  link_note: string | null;
   vlan: number | null;
   bandwidth_mbps: number | null;
   notes: string | null;
@@ -55,6 +85,13 @@ type PortRow = {
   upstream_providers: { id: string; name: string } | null;
 };
 type Opt = { id: string; name: string };
+type OltLink = {
+  oltId: string;
+  oltName: string;
+  label: string | null;
+  linkType: string | null;
+  linkLength: number | string | null;
+};
 type CableOpt = { id: string; name: string; cable_type: string; core_count: number };
 type CoreOpt = { id: string; core_number: number; color: string; status: string };
 type Draft = {
@@ -67,6 +104,9 @@ type Draft = {
   bandwidth_mbps: string;
   reseller_id: string;
   upstream_id: string;
+  link_type: string;
+  link_length_m: string;
+  link_note: string;
   cable_id: string;
   core_id: string;
   description: string;
@@ -80,6 +120,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
   const [cables, setCables] = useState<CableOpt[]>([]);
   const [resellers, setResellers] = useState<Opt[]>([]);
   const [upstreams, setUpstreams] = useState<Opt[]>([]);
+  const [oltLinks, setOltLinks] = useState<Record<string, OltLink>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftCores, setDraftCores] = useState<CoreOpt[]>([]);
@@ -91,15 +132,47 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
   const [addMedia, setAddMedia] = useState("sfp");
   const [addError, setAddError] = useState<string | null>(null);
 
+  async function loadOltLinks(ids: string[]) {
+    if (ids.length === 0) {
+      setOltLinks({});
+      return;
+    }
+    const { data } = await supabase
+      .from("olt_uplinks")
+      .select("switch_port_id, label, link_type, link_length_m, olts(id, name)")
+      .in("switch_port_id", ids);
+    const map: Record<string, OltLink> = {};
+    for (const u of (data ?? []) as unknown as {
+      switch_port_id: string | null;
+      label: string | null;
+      link_type: string | null;
+      link_length_m: number | string | null;
+      olts: { id: string; name: string } | null;
+    }[]) {
+      if (u.switch_port_id && u.olts) {
+        map[u.switch_port_id] = {
+          oltId: u.olts.id,
+          oltName: u.olts.name,
+          label: u.label,
+          linkType: u.link_type,
+          linkLength: u.link_length_m,
+        };
+      }
+    }
+    setOltLinks(map);
+  }
+
   async function loadPorts() {
     const { data } = await supabase
       .from("switch_ports")
       .select(
-        "id, port_number, label, speed, media, status, sfp_module, description, cable_id, core_id, reseller_id, upstream_id, vlan, bandwidth_mbps, notes, fiber_cables(name), fiber_cores(core_number, color), resellers(id, name), upstream_providers(id, name)"
+        "id, port_number, label, speed, media, status, sfp_module, description, cable_id, core_id, reseller_id, upstream_id, vlan, bandwidth_mbps, notes, link_type, link_length_m, link_note, fiber_cables(name), fiber_cores(core_number, color), resellers(id, name), upstream_providers(id, name)"
       )
       .eq("switch_id", switchId)
       .order("port_number");
-    setPorts((data ?? []) as unknown as PortRow[]);
+    const list = (data ?? []) as unknown as PortRow[];
+    setPorts(list);
+    await loadOltLinks(list.map((p) => p.id));
   }
 
   async function loadCoresFor(cableId: string) {
@@ -150,6 +223,9 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
       bandwidth_mbps: p.bandwidth_mbps !== null ? String(p.bandwidth_mbps) : "",
       reseller_id: p.reseller_id ?? "",
       upstream_id: p.upstream_id ?? "",
+      link_type: p.link_type ?? "",
+      link_length_m: p.link_length_m !== null ? String(p.link_length_m) : "",
+      link_note: p.link_note ?? "",
       cable_id: p.cable_id ?? "",
       core_id: p.core_id ?? "",
       description: p.description ?? "",
@@ -191,8 +267,13 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
           draft.bandwidth_mbps !== "" ? Number(draft.bandwidth_mbps) : null,
         reseller_id: draft.reseller_id || null,
         upstream_id: draft.upstream_id || null,
-        cable_id: draft.cable_id || null,
-        core_id: draft.core_id || null,
+        cable_id:
+          !draft.link_type || draft.link_type === "fiber" ? draft.cable_id || null : null,
+        core_id:
+          !draft.link_type || draft.link_type === "fiber" ? draft.core_id || null : null,
+        link_type: draft.link_type || null,
+        link_length_m: draft.link_length_m !== "" ? Number(draft.link_length_m) : null,
+        link_note: draft.link_note || null,
         description: draft.description || null,
         notes: draft.notes || null,
       })
@@ -217,6 +298,9 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
         core_id: null,
         reseller_id: null,
         upstream_id: null,
+        link_type: null,
+        link_length_m: null,
+        link_note: null,
         status: "free",
       })
       .eq("id", portId);
@@ -365,7 +449,27 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
                         </span>
                       </Link>
                     )}
-                    {!p.resellers && !p.upstream_providers && !p.fiber_cables && (
+                    {oltLinks[p.id] && (
+                      <Link
+                        href={`/olts/${oltLinks[p.id].oltId}`}
+                        className="block font-medium text-blue-600 hover:underline"
+                      >
+                        {oltLinks[p.id].oltName}
+                        <span className="ml-1.5 text-xs font-normal text-gray-500">
+                          OLT {oltLinks[p.id].label ?? "uplink"}
+                        </span>
+                      </Link>
+                    )}
+                    {(() => {
+                      const t = linkText(
+                        p.link_type ?? oltLinks[p.id]?.linkType,
+                        p.link_length_m ?? oltLinks[p.id]?.linkLength
+                      );
+                      return t ? (
+                        <span className="mt-0.5 block text-xs text-gray-500">{t}</span>
+                      ) : null;
+                    })()}
+                    {!p.resellers && !p.upstream_providers && !p.fiber_cables && !oltLinks[p.id] && (
                       <span className="text-gray-400">Nothing connected</span>
                     )}
                   </td>
@@ -552,10 +656,75 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
                         </div>
                         <div>
                           <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Connection type
+                          </label>
+                          <select
+                            value={draft.link_type}
+                            onChange={(e) =>
+                              setDraft((d) =>
+                                d
+                                  ? {
+                                      ...d,
+                                      link_type: e.target.value,
+                                      cable_id:
+                                        e.target.value && e.target.value !== "fiber"
+                                          ? ""
+                                          : d.cable_id,
+                                      core_id:
+                                        e.target.value && e.target.value !== "fiber"
+                                          ? ""
+                                          : d.core_id,
+                                    }
+                                  : d
+                              )
+                            }
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">(not set)</option>
+                            {linkOptions.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Cable length (m)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={draft.link_length_m}
+                            onChange={(e) => setField("link_length_m", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Cable note
+                          </label>
+                          <input
+                            value={draft.link_note}
+                            onChange={(e) => setField("link_note", e.target.value)}
+                            placeholder="e.g. 10G SFP+ DAC 3 m, rack A to rack B"
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                          {linkHint(draft.media, draft.link_type) && (
+                            <p className="mt-1 text-xs text-amber-700">
+                              {linkHint(draft.media, draft.link_type)}
+                            </p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
                             Fiber cable
                           </label>
                           <select
                             value={draft.cable_id}
+                            disabled={!!draft.link_type && draft.link_type !== "fiber"}
                             onChange={(e) => changeCable(e.target.value)}
                             className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                           >

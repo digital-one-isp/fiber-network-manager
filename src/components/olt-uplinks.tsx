@@ -30,6 +30,33 @@ const roleLabel: Record<string, string> = {
   other: "Other",
 };
 const statusOptions = ["free", "active", "reserved", "faulty", "disabled"];
+const linkOptions = [
+  { value: "fiber", label: "Fiber (patch cord or cable)" },
+  { value: "dac", label: "DAC cable (direct attach)" },
+  { value: "cat5e", label: "RJ45 Cat5e" },
+  { value: "cat6", label: "RJ45 Cat6" },
+  { value: "cat6a", label: "RJ45 Cat6a" },
+  { value: "other", label: "Other" },
+];
+const linkLabel: Record<string, string> = {};
+for (const o of linkOptions) linkLabel[o.value] = o.label;
+function linkText(
+  type: string | null | undefined,
+  len: number | string | null | undefined
+) {
+  if (!type) return null;
+  const base = linkLabel[type] ?? type;
+  return len !== null && len !== undefined && len !== "" ? `${base}, ${len} m` : base;
+}
+function linkHint(media: string, type: string) {
+  if (type === "dac" && media === "rj45") {
+    return "A DAC cable needs an SFP, SFP+ or SFP28 port, not an RJ45 port.";
+  }
+  if (["cat5e", "cat6", "cat6a"].includes(type) && media !== "rj45") {
+    return "Cat5e, Cat6 and Cat6a cables plug into RJ45 ports. Choose an RJ45 port type, or an RJ45 SFP module.";
+  }
+  return null;
+}
 const statusCls: Record<string, string> = {
   free: "bg-gray-100 text-gray-600",
   active: "bg-emerald-50 text-emerald-700",
@@ -54,6 +81,9 @@ type PortRow = {
   status: string;
   sfp_module: string | null;
   description: string | null;
+  link_type: string | null;
+  link_length_m: number | string | null;
+  link_note: string | null;
   switch_port_id: string | null;
   switch_ports: {
     id: string;
@@ -80,6 +110,9 @@ type Draft = {
   sfp_module: string;
   switch_port_id: string;
   description: string;
+  link_type: string;
+  link_length_m: string;
+  link_note: string;
 };
 
 export default function OltUplinks({ oltId }: { oltId: string }) {
@@ -100,7 +133,7 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       supabase
         .from("olt_uplinks")
         .select(
-          "id, label, speed, media, role, status, sfp_module, description, switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
+          "id, label, speed, media, role, status, sfp_module, description, link_type, link_length_m, link_note, switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
         )
         .eq("olt_id", oltId)
         .order("created_at")
@@ -187,6 +220,9 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       sfp_module: p.sfp_module ?? "",
       switch_port_id: p.switch_port_id ?? "",
       description: p.description ?? "",
+      link_type: p.link_type ?? "",
+      link_length_m: p.link_length_m !== null ? String(p.link_length_m) : "",
+      link_note: p.link_note ?? "",
     });
   }
 
@@ -209,6 +245,9 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
         sfp_module: draft.sfp_module || null,
         switch_port_id: draft.switch_port_id || null,
         description: draft.description || null,
+        link_type: draft.link_type || null,
+        link_length_m: draft.link_length_m !== "" ? Number(draft.link_length_m) : null,
+        link_note: draft.link_note || null,
       })
       .eq("id", id);
     setBusy(false);
@@ -306,6 +345,11 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                   </td>
                   <td className="max-w-xs px-4 py-3 text-gray-600">
                     <span className="block">{p.sfp_module ?? "Module not set"}</span>
+                    {linkText(p.link_type, p.link_length_m) && (
+                      <span className="block text-xs text-gray-500">
+                        Linked with {linkText(p.link_type, p.link_length_m)}
+                      </span>
+                    )}
                     {p.description && (
                       <span className="block text-xs text-gray-500">{p.description}</span>
                     )}
@@ -410,6 +454,53 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                             placeholder="e.g. 10G LR SFP+, 10 km, or Cat6 patch cord"
                             className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                           />
+                        </div>
+
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Connection type
+                          </label>
+                          <select
+                            value={draft.link_type}
+                            onChange={(e) => setField("link_type", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">(not set)</option>
+                            {linkOptions.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Cable length (m)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={draft.link_length_m}
+                            onChange={(e) => setField("link_length_m", e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-medium text-gray-600">
+                            Cable note
+                          </label>
+                          <input
+                            value={draft.link_note}
+                            onChange={(e) => setField("link_note", e.target.value)}
+                            placeholder="e.g. 10G SFP+ DAC 3 m, or Cat6 patch cord"
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                          />
+                          {linkHint(draft.media, draft.link_type) && (
+                            <p className="mt-1 text-xs text-amber-700">
+                              {linkHint(draft.media, draft.link_type)}
+                            </p>
+                          )}
                         </div>
 
                         <div className="md:col-span-2">
