@@ -11,6 +11,7 @@ import type {
   CoreSite,
   CoreSwitch,
   CoreUpstream,
+  FiberRef,
 } from "@/lib/core-network-data";
 
 const NAVY = "#0f2a4a";
@@ -65,6 +66,12 @@ const linkName: Record<string, string> = {
   cat6a: "Cat6a cable",
   other: "other cable",
 };
+function fiberWords(f: FiberRef | null) {
+  if (!f) return null;
+  const core =
+    f.coreNo !== null ? `, core ${f.coreNo}${f.color ? ` (${f.color})` : ""}` : "";
+  return `${f.cable}${core}`;
+}
 function linkWords(type: string | null, len: number | null) {
   if (!type) return null;
   const name = linkName[type] ?? type;
@@ -520,6 +527,10 @@ export default function CoreNetwork({
         <span className="mt-1 block text-[11px] text-gray-500">
           {u.capacityMbps !== null ? formatMbps(u.capacityMbps) : "Capacity not set"}
           {u.via ? `, enters on ${u.via.portLabel} (${u.via.speed})` : ""}
+          {u.via && linkWords(u.via.linkType, u.via.linkLengthM)
+            ? `, ${linkWords(u.via.linkType, u.via.linkLengthM)}`
+            : ""}
+          {u.via?.fiber ? `, ${fiberWords(u.via.fiber)}` : ""}
         </span>
       </button>
     );
@@ -587,6 +598,16 @@ export default function CoreNetwork({
           {o.sfp ? `, ${o.sfp}` : ""}
           {o.linkType ? `, via ${linkName[o.linkType] ?? o.linkType}` : ""}
         </span>
+        {o.fiber && (
+          <span className="mt-1 block text-[11px] text-gray-700">
+            OLT end: {fiberWords(o.fiber)}
+          </span>
+        )}
+        {o.farFiber && (
+          <span className="block text-[11px] text-gray-700">
+            Switch end: {fiberWords(o.farFiber)}
+          </span>
+        )}
       </button>
     );
   }
@@ -617,6 +638,10 @@ export default function CoreNetwork({
           {r.via.speed} on {r.via.portLabel}
           {r.via.vlan !== null ? `, VLAN ${r.via.vlan}` : ""}
           {r.bandwidthMbps !== null ? `, ${formatMbps(r.bandwidthMbps)}` : ""}
+          {linkWords(r.via.linkType, r.via.linkLengthM)
+            ? `, ${linkWords(r.via.linkType, r.via.linkLengthM)}`
+            : ""}
+          {r.via.fiber ? `, ${fiberWords(r.via.fiber)}` : ""}
         </span>
       </button>
     );
@@ -812,6 +837,7 @@ export default function CoreNetwork({
             ["SFP module", u.via ? u.via.sfp : null],
             ["VLAN", u.via && u.via.vlan !== null ? String(u.via.vlan) : null],
             ["Connected with", u.via ? linkWords(u.via.linkType, u.via.linkLengthM) : null],
+            ["Fiber", u.via ? fiberWords(u.via.fiber) : null],
             ["Contact", u.contactPerson],
             ["Phone", u.phone],
             ["Email", u.email],
@@ -883,7 +909,9 @@ export default function CoreNetwork({
                     title={o.name}
                     meta={`${o.uplinkLabel ? `${o.uplinkLabel}, ` : ""}${o.speed} ${
                       mediaName[o.media] ?? o.media
-                    } on ${o.portLabel}${o.linkType ? `, via ${linkName[o.linkType] ?? o.linkType}` : ""}`}
+                    } on ${o.portLabel}${o.linkType ? `, via ${linkName[o.linkType] ?? o.linkType}` : ""}${
+                      o.fiber ? `, ${fiberWords(o.fiber)}` : ""
+                    }`}
                     onClick={() => openOlt(o.id)}
                   />
                 ))}
@@ -998,6 +1026,7 @@ export default function CoreNetwork({
             ["SFP module", r.via.sfp],
             ["VLAN", r.via.vlan !== null ? String(r.via.vlan) : null],
             ["Connected with", linkWords(r.via.linkType, r.via.linkLengthM)],
+            ["Fiber", fiberWords(r.via.fiber)],
             [
               "Port bandwidth",
               r.via.bandwidthMbps !== null ? formatMbps(r.via.bandwidthMbps) : null,

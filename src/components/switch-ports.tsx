@@ -91,6 +91,7 @@ type OltLink = {
   label: string | null;
   linkType: string | null;
   linkLength: number | string | null;
+  fiber: string | null;
 };
 type CableOpt = { id: string; name: string; cable_type: string; core_count: number };
 type CoreOpt = { id: string; core_number: number; color: string; status: string };
@@ -139,7 +140,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
     }
     const { data } = await supabase
       .from("olt_uplinks")
-      .select("switch_port_id, label, link_type, link_length_m, olts(id, name)")
+      .select("switch_port_id, label, link_type, link_length_m, fiber_cables(name), fiber_cores(core_number, color), olts(id, name)")
       .in("switch_port_id", ids);
     const map: Record<string, OltLink> = {};
     for (const u of (data ?? []) as unknown as {
@@ -147,6 +148,8 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
       label: string | null;
       link_type: string | null;
       link_length_m: number | string | null;
+      fiber_cables: { name: string } | null;
+      fiber_cores: { core_number: number; color: string } | null;
       olts: { id: string; name: string } | null;
     }[]) {
       if (u.switch_port_id && u.olts) {
@@ -156,6 +159,13 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
           label: u.label,
           linkType: u.link_type,
           linkLength: u.link_length_m,
+          fiber: u.fiber_cables
+            ? `${u.fiber_cables.name}${
+                u.fiber_cores
+                  ? `, core ${u.fiber_cores.core_number} (${u.fiber_cores.color})`
+                  : ""
+              }`
+            : null,
         };
       }
     }
@@ -457,6 +467,7 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
                         {oltLinks[p.id].oltName}
                         <span className="ml-1.5 text-xs font-normal text-gray-500">
                           OLT {oltLinks[p.id].label ?? "uplink"}
+                          {oltLinks[p.id].fiber ? `, fiber ${oltLinks[p.id].fiber}` : ""}
                         </span>
                       </Link>
                     )}

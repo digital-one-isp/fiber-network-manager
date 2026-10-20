@@ -84,6 +84,10 @@ type PortRow = {
   link_type: string | null;
   link_length_m: number | string | null;
   link_note: string | null;
+  cable_id: string | null;
+  core_id: string | null;
+  fiber_cables: { name: string } | null;
+  fiber_cores: { core_number: number; color: string } | null;
   switch_port_id: string | null;
   switch_ports: {
     id: string;
@@ -113,6 +117,8 @@ type Draft = {
   link_type: string;
   link_length_m: string;
   link_note: string;
+  cable_id: string;
+  core_id: string;
 };
 
 export default function OltUplinks({ oltId }: { oltId: string }) {
@@ -124,6 +130,12 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [presetKey, setPresetKey] = useState("xge");
+  const [cables, setCables] = useState<
+    { id: string; name: string; cable_type: string; core_count: number }[]
+  >([]);
+  const [draftCores, setDraftCores] = useState<
+    { id: string; core_number: number; color: string; status: string }[]
+  >([]);
   const [count, setCount] = useState("2");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,7 +145,7 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       supabase
         .from("olt_uplinks")
         .select(
-          "id, label, speed, media, role, status, sfp_module, description, link_type, link_length_m, link_note, switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
+          "id, label, speed, media, role, status, sfp_module, description, link_type, link_length_m, link_note, cable_id, core_id, fiber_cables(name), fiber_cores(core_number, color), switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
         )
         .eq("olt_id", oltId)
         .order("created_at")
@@ -163,6 +175,23 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    supabase
+      .from("fiber_cables")
+      .select("id, name, cable_type, core_count")
+      .order("name")
+      .then(({ data }) =>
+        setCables(
+          (data ?? []) as unknown as {
+            id: string;
+            name: string;
+            cable_type: string;
+            core_count: number;
+          }[]
+        )
+      );
+  }, [supabase]);
+
   function portOptions(current: string) {
     const groups = new Map<string, { name: string; list: SwitchPortOpt[] }>();
     for (const p of switchPorts) {
@@ -182,6 +211,26 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
         ))}
       </optgroup>
     ));
+  }
+
+  async function loadCoresFor(cableId: string) {
+    if (!cableId) {
+      setDraftCores([]);
+      return;
+    }
+    const { data } = await supabase
+      .from("fiber_cores")
+      .select("id, core_number, color, status")
+      .eq("cable_id", cableId)
+      .order("core_number");
+    setDraftCores(
+      (data ?? []) as unknown as {
+        id: string;
+        core_number: number;
+        color: string;
+        status: string;
+      }[]
+    );
   }
 
   async function createPorts(e: React.FormEvent) {
@@ -223,7 +272,10 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       link_type: p.link_type ?? "",
       link_length_m: p.link_length_m !== null ? String(p.link_length_m) : "",
       link_note: p.link_note ?? "",
+      cable_id: p.cable_id ?? "",
+      core_id: p.core_id ?? "",
     });
+    loadCoresFor(p.cable_id ?? "");
   }
 
   function setField<K extends keyof Draft>(key: K, value: string) {
@@ -248,6 +300,8 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
         link_type: draft.link_type || null,
         link_length_m: draft.link_length_m !== "" ? Number(draft.link_length_m) : null,
         link_note: draft.link_note || null,
+        cable_id: draft.link_type === "fiber" ? draft.cable_id || null : null,
+        core_id: draft.link_type === "fiber" ? draft.core_id || null : null,
       })
       .eq("id", id);
     setBusy(false);
@@ -348,6 +402,13 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                     {linkText(p.link_type, p.link_length_m) && (
                       <span className="block text-xs text-gray-500">
                         Linked with {linkText(p.link_type, p.link_length_m)}
+                        {p.fiber_cables
+                          ? `: ${p.fiber_cables.name}${
+                              p.fiber_cores
+                                ? `, core ${p.fiber_cores.core_number} (${p.fiber_cores.color})`
+                                : ""
+                            }`
+                          : ""}
                       </span>
                     )}
                     {p.description && (
@@ -502,6 +563,53 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                             </p>
                           )}
                         </div>
+
+                        {draft.link_type === "fiber" && (
+                          <>
+                            <div className="md:col-span-2">
+                              <label className="mb-1 block text-xs font-medium text-gray-600">
+                                Fiber cable (the cable this link runs on)
+                              </label>
+                              <select
+                                value={draft.cable_id}
+                                onChange={(e) => {
+                                  setField("cable_id", e.target.value);
+                                  setField("core_id", "");
+                                  loadCoresFor(e.target.value);
+                                }}
+                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                              >
+                                <option value="">(not recorded)</option>
+                                {cables.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name} ({c.cable_type}, {c.core_count} cores)
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="mb-1 block text-xs font-medium text-gray-600">
+                                Core
+                              </label>
+                              <select
+                                value={draft.core_id}
+                                onChange={(e) => setField("core_id", e.target.value)}
+                                disabled={!draft.cable_id}
+                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
+                              >
+                                <option value="">(not chosen)</option>
+                                {draftCores
+                                  .filter((c) => c.status === "free" || c.id === draft.core_id)
+                                  .map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      Core {c.core_number} ({c.color})
+                                    </option>
+                                  ))}
+                              </select>
+                              <p className="mt-1 text-xs text-gray-400">Only free cores are listed.</p>
+                            </div>
+                          </>
+                        )}
 
                         <div className="md:col-span-2">
                           <label className="mb-1 block text-xs font-medium text-gray-600">

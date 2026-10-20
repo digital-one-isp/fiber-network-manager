@@ -94,6 +94,14 @@ type FaultRow = {
   title: string;
 };
 type CustomerRow = { id: string; name: string; status: string };
+const linkNames: Record<string, string> = {
+  fiber: "Fiber",
+  dac: "DAC cable",
+  cat5e: "RJ45 Cat5e",
+  cat6: "RJ45 Cat6",
+  cat6a: "RJ45 Cat6a",
+  other: "Other cable",
+};
 type RouteRow = {
   id: string;
   cable_id: string;
@@ -117,6 +125,10 @@ type OltOtherRow = {
   status: string;
   sfp_module: string | null;
   description: string | null;
+  link_type: string | null;
+  link_length_m: number | string | null;
+  fiber_cables: { name: string } | null;
+  fiber_cores: { core_number: number; color: string } | null;
   switch_ports: {
     port_number: number;
     label: string | null;
@@ -271,7 +283,7 @@ export default async function NetworkOverviewPage() {
     supabase
       .from("olt_uplinks")
       .select(
-        "id, olt_id, label, speed, media, role, status, sfp_module, description, switch_ports(port_number, label, network_switches(id, name))"
+        "id, olt_id, label, speed, media, role, status, sfp_module, description, link_type, link_length_m, fiber_cables(name), fiber_cores(core_number, color), switch_ports(port_number, label, network_switches(id, name))"
       )
       .order("created_at")
       .order("id")
@@ -317,6 +329,18 @@ export default async function NetworkOverviewPage() {
       switchId: sp?.network_switches?.id ?? null,
       switchName: sp?.network_switches?.name ?? null,
       switchPortLabel: sp ? sp.label || `Port ${sp.port_number}` : null,
+      link: r.link_type
+        ? `${linkNames[r.link_type] ?? r.link_type}${
+            r.link_length_m !== null ? `, ${r.link_length_m} m` : ""
+          }`
+        : null,
+      fiber: r.fiber_cables
+        ? `${r.fiber_cables.name}${
+            r.fiber_cores
+              ? `, core ${r.fiber_cores.core_number} (${r.fiber_cores.color})`
+              : ""
+          }`
+        : null,
     });
     otherByOlt.set(r.olt_id, list);
   }

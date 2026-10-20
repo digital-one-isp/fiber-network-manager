@@ -116,6 +116,8 @@ export type OltOtherPort = {
   switchId: string | null;
   switchName: string | null;
   switchPortLabel: string | null;
+  link: string | null;
+  fiber: string | null;
 };
 export type PonLink = {
   number: number;
@@ -1129,6 +1131,16 @@ function DetailModal({
                         </td>
                         <td className="px-3 py-2 text-gray-600">
                           {p.sfp ?? <span className="text-gray-400">Module not set</span>}
+                          {p.link && (
+                            <span className="block text-xs text-gray-500">
+                              Linked with {p.link}
+                            </span>
+                          )}
+                          {p.fiber && (
+                            <span className="block text-xs text-gray-500">
+                              Fiber: {p.fiber}
+                            </span>
+                          )}
                           {p.description && (
                             <span className="block text-xs text-gray-500">{p.description}</span>
                           )}
