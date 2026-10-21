@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import CoreNetwork from "@/components/core-network";
+import FiberPath from "@/components/fiber-path";
 import BoxInside from "@/components/box-inside";
 import type { CoreData } from "@/lib/core-network-data";
 
@@ -1228,6 +1229,8 @@ function DetailModal({
               )}
             </>
           )}
+
+          {sel.kind === "cable" && <FiberPath cableId={sel.node.id} />}
 
           {sel.kind === "cable" && sel.node.route.length > 0 && (
             <section className="mt-6">

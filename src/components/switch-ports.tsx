@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import FiberReach from "@/components/fiber-reach";
 
 const speedOptions = ["100M", "1G", "2.5G", "10G", "25G", "40G", "100G"];
 const mediaOptions = [
@@ -767,6 +768,9 @@ export default function SwitchPorts({ switchId }: { switchId: string }) {
                               ))}
                           </select>
                           <p className="mt-1 text-xs text-gray-400">Only free cores are listed.</p>
+                          {draft.core_id && (
+                            <FiberReach coreId={draft.core_id} selfId={p.id} />
+                          )}
                         </div>
 
                         <div className="md:col-span-4">

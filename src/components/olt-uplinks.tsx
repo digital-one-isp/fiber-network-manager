@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import FiberReach from "@/components/fiber-reach";
 
 const speedOptions = ["100M", "1G", "2.5G", "10G", "25G", "40G", "100G"];
 const mediaOptions = [
@@ -88,6 +89,7 @@ type PortRow = {
   core_id: string | null;
   fiber_cables: { name: string } | null;
   fiber_cores: { core_number: number; color: string } | null;
+  link_auto: boolean;
   switch_port_id: string | null;
   switch_ports: {
     id: string;
@@ -145,7 +147,7 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
       supabase
         .from("olt_uplinks")
         .select(
-          "id, label, speed, media, role, status, sfp_module, description, link_type, link_length_m, link_note, cable_id, core_id, fiber_cables(name), fiber_cores(core_number, color), switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
+          "id, label, speed, media, role, status, sfp_module, description, link_type, link_length_m, link_note, cable_id, core_id, fiber_cables(name), fiber_cores(core_number, color), link_auto, switch_port_id, switch_ports(id, port_number, label, network_switches(id, name))"
         )
         .eq("olt_id", oltId)
         .order("created_at")
@@ -391,6 +393,7 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                         </Link>
                         <span className="block text-xs text-gray-500">
                           {p.switch_ports.label || `Port ${p.switch_ports.port_number}`}
+                          {p.link_auto ? " (found from the fiber)" : ""}
                         </span>
                       </>
                     ) : (
@@ -607,6 +610,9 @@ export default function OltUplinks({ oltId }: { oltId: string }) {
                                   ))}
                               </select>
                               <p className="mt-1 text-xs text-gray-400">Only free cores are listed.</p>
+                              {draft.core_id && (
+                                <FiberReach coreId={draft.core_id} selfId={p.id} />
+                              )}
                             </div>
                           </>
                         )}
