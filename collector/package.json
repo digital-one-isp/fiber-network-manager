@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx --env-file=.env src/index.ts",
-    "discover": "tsx scripts/snmp-discover.ts"
+    "discover": "tsx scripts/snmp-discover.ts",
+    "survey": "tsx scripts/survey.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

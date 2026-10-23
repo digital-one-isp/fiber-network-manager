@@ -381,7 +381,7 @@ export default function OltOnuMonitor({ oltId }: { oltId: string }) {
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   {total === 0
-                    ? "No ONU yet. The list fills in after the collector polls this OLT."
+                    ? "No ONU yet. The list fills in after the collector polls this OLT. Until the driver for this brand is added, only the OLT status (online, offline, uptime) is read."
                     : "No ONU matches these filters."}
                 </td>
               </tr>
