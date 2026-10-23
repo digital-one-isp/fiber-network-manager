@@ -9,6 +9,7 @@ const navItems = [
   { href: "/sites", label: "Sites" },
   { href: "/upstreams", label: "Upstream ISPs" },
   { href: "/olts", label: "OLTs" },
+  { href: "/monitoring", label: "OLT Monitoring" },
   { href: "/switches", label: "Switches" },
   { href: "/fiber-cables", label: "Fiber Cables" },
   { href: "/tg-boxes", label: "TG / Joint Boxes" },
